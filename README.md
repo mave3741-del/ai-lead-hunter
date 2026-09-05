@@ -1,8 +1,8 @@
 # AI Lead Hunter
 
-**v2.0.0** — Find better business opportunities with AI.
+**v2.1.0** — Find real businesses. Sell a real offer. Get a real $100 customer.
 
-Find legitimate US dental clinics that can use an **AI Appointment Assistant** ($100 one-time setup), audit their public website, score the fit, draft outreach, and wait for a human before anything is copied out.
+Find legitimate businesses (current niche: US dental clinics) that can use an **AI Appointment Assistant** ($100 one-time setup), audit their public website, score the fit, draft outreach, and wait for a human before anything is copied out.
 
 This is not a spam bot, not a mass-mailer, and not a fake-engagement tool. Permitted public business information only. **Outreach never sends itself.**
 
@@ -34,14 +34,16 @@ Workspaces are isolated.
 
 ## What it does
 
-1. **Scout** — production uses source adapters (OSM Overpass, optional Places/Serper) plus CSV/manual. Demo mode may use labeled sample clinics. Production never silently uses sample data.
-2. **Research / audit** — public website only. Unknown stays unknown.
-3. **Opportunity + score** — explainable 0–100. Default threshold 75.
+1. **Scout** — queries every ready source (OSM, optional Places/Serper, CSV, manual), merges duplicates, keeps source records. Demo mode may use labeled samples. Production never silently uses sample data.
+2. **Research / audit** — public website only. Unknown stays unknown. Evidence URLs stored.
+3. **Opportunity + score + offer** — explainable 0–100. Default threshold 75. No pitch without a verified gap.
 4. **Draft + compliance** — evidence-based copy. Deceptive/medical/spam patterns rejected.
 5. **Human approval** — Approve / Edit / Reject. Copy the message yourself. Follow-ups also need approval (max 2).
-6. **Track** — WON / LOST / DO_NOT_CONTACT, experiments, manual $100 revenue.
+6. **Track** — WON / LOST / DO_NOT_CONTACT, experiments, source ROI, $100 revenue.
 
-Master: Discover → Deduplicate → Research → Audit → Opportunity → Score → Offer → Outreach → Human approval → Track → Revenue.
+Master jobs: Discover → Deduplicate → Research → Audit → Opportunity → Score → Offer → Outreach → Compliance → Human approval → Track → Revenue.
+
+Agents are **queued jobs** with concurrency and spend caps — not 300 always-on models. One AI provider can play several roles.
 
 ## Pages
 
@@ -51,11 +53,9 @@ Master: Discover → Deduplicate → Research → Audit → Opportunity → Scor
 
 TanStack Start (React + Vite) · TypeScript · Postgres (Neon or PGLite) · Tailwind · Zod · Better Auth.
 
-Agents are **jobs**, not always-on models. One AI provider can play several roles.
-
 ## Environment
 
-Copy `env.example` to `.env`. Never commit secrets. Never prefix provider keys with `VITE_`.
+Copy `env.example` (or `.env.example`) to `.env`. Never commit secrets. Never prefix provider keys with `VITE_`.
 
 | Variable | Purpose |
 |---|---|
@@ -68,13 +68,17 @@ Copy `env.example` to `.env`. Never commit secrets. Never prefix provider keys w
 
 ## Database
 
-`migrations/0001_auth.sql`, `0002_schema.sql`, `0003_v2.sql` (sources, follow-ups, opportunities, experiments). Auto-applied.
+`migrations/0001_auth.sql`, `0002_schema.sql`, `0003_v2.sql`, `0004_v21.sql`. Auto-applied.
 
 ## Demo vs production
 
-**Demo mode:** labeled sample clinics, heuristics, no outbound.
+**Demo mode:** labeled sample clinics, heuristics, no outbound. Badge shown.
 
 **Production:** never uses `SAMPLE_CLINICS`. If no live adapter is ready: *No live lead source configured. Add a source or import leads.*
+
+## Cost control
+
+`max_concurrent_tasks` (default 5), `max_daily_ai_spend`, `daily_lead_target` (~20). Source searches rate-limited. Website fetch timeout + size cap.
 
 ## Security
 

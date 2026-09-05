@@ -94,7 +94,16 @@ export const osmAdapter: LeadSourceAdapter = {
     if (!enabled()) {
       return { ok: false, error: "OSM Overpass is disabled", source: "osm_overpass", not_configured: true };
     }
+    const niche = (args.niche || "").toLowerCase();
+    if (niche && !/dent|oral|orthodont|periodont/.test(niche)) {
+      return {
+        ok: true,
+        candidates: [],
+        source: "osm_overpass",
+      };
+    }
     const city = args.city?.trim() || "Austin";
     return queryOverpass(city, args.limit);
   },
 };
+

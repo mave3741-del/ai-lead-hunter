@@ -12,11 +12,12 @@ import {
   getDashboard,
   runAuditPending,
   runGenerateDrafts,
+  runResearchPending,
   runScorePending,
   setAgentsPaused,
   startScout,
 } from "@/lib/server/fns";
-import { Badge, Button, Card } from "@/components/ui";
+import { Badge, Button, Card, Input } from "@/components/ui";
 import { PriorityBadge, ScorePip, StatusBadge } from "@/components/status";
 import { formatMoney, relativeTime } from "@/lib/utils";
 import { toast } from "sonner";
@@ -37,6 +38,8 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
 function Dashboard() {
   const q = useQuery({ queryKey: ["dashboard"], queryFn: () => getDashboard() });
   const [busy, setBusy] = useState<string | null>(null);
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
   const data = q.data;
 
   async function run(label: string, fn: () => Promise<unknown>) {
@@ -77,8 +80,18 @@ function Dashboard() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button disabled={!!busy || paused} onClick={() => void run("Scout finished", () => startScout())}>
+          <Button
+            disabled={!!busy || paused}
+            onClick={() =>
+              void run("Scout finished", () =>
+                startScout({ data: { city: city || undefined, state: state || undefined } }),
+              )
+            }
+          >
             Run discovery
+          </Button>
+          <Button variant="secondary" disabled={!!busy || paused} onClick={() => void run("Research done", () => runResearchPending())}>
+            Run research
           </Button>
           <Button variant="secondary" disabled={!!busy || paused} onClick={() => void run("Audits done", () => runAuditPending())}>
             Run audits
@@ -101,6 +114,44 @@ function Dashboard() {
           </Link>
         </div>
       </div>
+
+      <Card className="flex flex-wrap items-end justify-between gap-4 p-5">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-muted">First $100 goal</p>
+          <p className="mt-1 font-display text-3xl tabular-nums">
+            {formatMoney(m.revenue, data.profile.currency)} / {formatMoney(data.profile.price || 100, data.profile.currency)}
+          </p>
+          <p className="mt-1 text-sm text-muted">
+            Customers {m.customers} / 1 · {m.customers >= 1 ? "Goal hit. Keep going." : "One real $100 customer."}
+          </p>
+        </div>
+        <div className="h-2 w-full max-w-sm overflow-hidden rounded-full bg-surface-2">
+          <div
+            className="h-full bg-accent"
+            style={{ width: `${Math.min(100, Math.round((m.revenue / Math.max(data.profile.price || 100, 1)) * 100))}%` }}
+          />
+        </div>
+      </Card>
+
+      {data.spendCapped ? (
+        <Card className="border-warn/40 p-4 text-sm">
+          Daily AI spend cap reached. New model calls are paused until tomorrow or you raise the cap in Settings.
+        </Card>
+      ) : null}
+
+      <Card className="grid gap-3 p-4 sm:grid-cols-3">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-muted">Scout city</p>
+          <Input className="mt-1" placeholder="Austin" value={city} onChange={(e) => setCity(e.target.value)} />
+        </div>
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-muted">State</p>
+          <Input className="mt-1" placeholder="TX" value={state} onChange={(e) => setState(e.target.value)} />
+        </div>
+        <p className="self-end text-xs text-subtle">
+          Niche: {data.profile.target_niche} · {data.profile.target_country}. Quality over volume (max ~20/day).
+        </p>
+      </Card>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Today's prospects" value={String(m.today_prospects)} hint={`Daily target ${data.profile.daily_lead_target}`} />

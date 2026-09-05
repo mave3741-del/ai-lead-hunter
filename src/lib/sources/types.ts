@@ -11,6 +11,7 @@ export type SourceCandidate = {
   category?: string;
   external_id?: string | null;
   notes?: string | null;
+  sources?: string[];
 };
 
 export type SourceHealth = {
@@ -28,6 +29,7 @@ export type SearchArgs = {
   niche: string;
   country: string;
   city?: string;
+  state?: string;
   limit: number;
 };
 

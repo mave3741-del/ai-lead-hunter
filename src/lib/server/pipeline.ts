@@ -2,17 +2,19 @@ import type { Sql } from "../db";
 import type { AgentType, AuditResult, BusinessProfile, JsonValue, LeadStatus } from "../types";
 import { SAMPLE_CLINICS, SCOUT_POOL } from "../agents/sample-clinics";
 import { discoverLeads, fingerprint } from "../sources/registry";
+import type { SourceCandidate } from "../sources/types";
 import { detectOpportunities, offerPitch } from "../agents/opportunity";
 import { reviewDraftBundle } from "../agents/compliance";
 import { runWebsiteAudit } from "../agents/auditor";
 import { researchBusiness } from "../agents/research";
 import { generateOutreach, templateOutreach } from "../agents/outreach";
-import { calculateScore, nextFollowupSequence, shouldPrepareOutreach, statusAfterAudit, statusAfterDraft } from "../lead-rules";
+import { calculateScore, isDuplicateLead, nextFollowupSequence, shouldPrepareOutreach, statusAfterAudit, statusAfterDraft } from "../lead-rules";
 import { aiAvailable, estimateCostUsd } from "../ai/client";
 import { domainFromUrl, normalizeName } from "../utils";
 import { addUsage, recordEvent, todayUsage, type Ctx } from "./workspace";
 import { jsonParam, mapLead } from "./map";
 import { parsePublicHttpUrl } from "../url-safety";
+import { dailySpendReached } from "../rate-limit";
 
 export type TaskResult = {
   id: string;
@@ -39,12 +41,25 @@ async function beginTask(
   if (ctx.profile.agents_paused) {
     return { ok: false, error: "Agents are paused" };
   }
+  if (leadId) {
+    const dup = await ctx.sql<{ id: string }>`
+      select id from agent_tasks
+      where workspace_id = ${ctx.workspace.id}
+        and lead_id = ${leadId}
+        and agent_type = ${agent}
+        and status = 'running'
+      limit 1
+    `;
+    if (dup[0]) {
+      return { ok: false, error: "Task already running", id: dup[0].id };
+    }
+  }
   const running = await runningCount(ctx.sql, ctx.workspace.id);
   if (running >= ctx.profile.max_concurrent_tasks) {
     return { ok: false, error: `Max concurrent tasks (${ctx.profile.max_concurrent_tasks}) reached` };
   }
   const usage = await todayUsage(ctx.sql, ctx.workspace.id);
-  if (usage.cost >= ctx.profile.max_daily_ai_spend && !ctx.profile.demo_mode) {
+  if (dailySpendReached(usage.cost, ctx.profile.max_daily_ai_spend, ctx.profile.demo_mode)) {
     return { ok: false, error: "Daily AI spend cap reached" };
   }
   const id = crypto.randomUUID();
@@ -67,10 +82,12 @@ async function finishTask(
     set status = ${status},
         output = ${output ? jsonParam(output) : null}::jsonb,
         error = ${error ?? null},
-        completed_at = now()
+        completed_at = now(),
+        duration_ms = (extract(epoch from (now() - started_at)) * 1000)::int
     where id = ${id}
   `;
 }
+
 
 async function loadLead(sql: Sql, workspaceId: string, leadId: string) {
   const rows = await sql<Record<string, unknown>>`
@@ -86,44 +103,51 @@ async function setStatus(sql: Sql, workspaceId: string, leadId: string, status: 
   `;
 }
 
-export async function runScout(ctx: Ctx): Promise<TaskResult> {
+export async function runScout(
+  ctx: Ctx,
+  opts?: { city?: string; state?: string; limit?: number },
+): Promise<TaskResult> {
   const started = await beginTask(ctx, "scout", {
     niche: ctx.profile.target_niche,
     demo: ctx.profile.demo_mode,
+    city: opts?.city ?? null,
+    state: opts?.state ?? null,
   });
   if (!started.ok) {
     return { id: started.id ?? "none", agent_type: "scout", status: "failed", error: started.error };
   }
   try {
-    const existing = await ctx.sql<{ domain: string | null; business_name: string; city: string | null; state: string | null }>`
-      select domain, business_name, city, state from leads where workspace_id = ${ctx.workspace.id}
+    const existing = await ctx.sql<{
+      id: string;
+      domain: string | null;
+      business_name: string;
+      city: string | null;
+      state: string | null;
+    }>`
+      select id, domain, business_name, city, state from leads where workspace_id = ${ctx.workspace.id}
     `;
-    const domains = new Set(existing.map((e) => (e.domain || "").toLowerCase()).filter(Boolean));
-    const names = new Set(existing.map((e) => normalizeName(e.business_name)));
-    const limit = Math.min(ctx.profile.daily_lead_target || 20, 20);
+    const limit = Math.min(opts?.limit || ctx.profile.daily_lead_target || 20, 20);
+    const disabled = await ctx.sql<{ source_key: string }>`
+      select source_key from source_configs
+      where workspace_id = ${ctx.workspace.id} and enabled = false
+    `;
 
     const discovered = await discoverLeads({
       demoMode: ctx.profile.demo_mode,
+      disabledKeys: disabled.map((d) => d.source_key),
       args: {
         niche: ctx.profile.target_niche,
         country: ctx.profile.target_country,
-        city: undefined,
+        city: opts?.city || undefined,
+        state: opts?.state || undefined,
         limit,
       },
     });
 
     if (!discovered.ok) {
       await recordEvent(ctx.sql, ctx.workspace.id, discovered.error, "scout");
-      if (discovered.used !== "none") {
-        await ctx.sql`
-          insert into source_configs (id, workspace_id, source_key, last_error, error_count, request_count)
-          values (${crypto.randomUUID()}, ${ctx.workspace.id}, ${discovered.used}, ${discovered.error}, ${1}, ${1})
-          on conflict (workspace_id, source_key) do update set
-            last_error = excluded.last_error,
-            error_count = source_configs.error_count + 1,
-            request_count = source_configs.request_count + 1,
-            updated_at = now()
-        `;
+      for (const key of discovered.sources_used.length ? discovered.sources_used : []) {
+        await touchSource(ctx, key, false, discovered.error);
       }
       await finishTask(ctx.sql, started.id, "completed", {
         added: 0,
@@ -142,11 +166,45 @@ export async function runScout(ctx: Ctx): Promise<TaskResult> {
       select id from campaigns where workspace_id = ${ctx.workspace.id} limit 1
     `;
     const added: string[] = [];
+    const addedIds: string[] = [];
     const isDemo = ctx.profile.demo_mode && discovered.used === "demo_pool";
+    const category = ctx.profile.target_niche || "Dental clinics";
+
+    async function attachSources(
+      leadId: string,
+      sources: string[],
+      c: SourceCandidate,
+    ) {
+      for (const src of sources) {
+        if (!src || src === "none") continue;
+        const have = await ctx.sql<{ n: number }>`
+          select count(*)::int as n from lead_sources
+          where lead_id = ${leadId} and workspace_id = ${ctx.workspace.id} and source_name = ${src}
+        `;
+        if (Number(have[0]?.n ?? 0) > 0) continue;
+        await ctx.sql`
+          insert into lead_sources (id, lead_id, workspace_id, source_name, source_url, external_id, payload)
+          values (
+            ${crypto.randomUUID()}, ${leadId}, ${ctx.workspace.id}, ${src},
+            ${c.source_url ?? null}, ${c.external_id ?? null}, ${jsonParam({ city: c.city ?? null })}::jsonb
+          )
+        `;
+      }
+    }
+
     for (const c of discovered.candidates) {
       const fp = fingerprint(c);
-      if (fp.domain && domains.has(fp.domain)) continue;
-      if (fp.name && names.has(fp.name)) continue;
+      const sources = c.sources?.length ? c.sources : discovered.sources_used;
+      const dup = existing.find((e) =>
+        isDuplicateLead(
+          { domain: fp.domain, business_name: c.business_name, city: c.city, state: c.state },
+          [e],
+        ),
+      );
+      if (dup) {
+        await attachSources(dup.id, sources, c);
+        continue;
+      }
       const website = c.website ?? null;
       if (website && !website.includes(".example")) {
         const parsed = parsePublicHttpUrl(website);
@@ -159,44 +217,49 @@ export async function runScout(ctx: Ctx): Promise<TaskResult> {
           city, state, country, public_phone, public_email, source_url, notes, tags, status, is_demo, source
         ) values (
           ${id}, ${ctx.workspace.id}, ${campaign[0]?.id ?? null}, ${c.business_name}, ${website},
-          ${fp.domain}, ${c.category || "Dental clinic"}, ${c.city ?? null}, ${c.state ?? null},
+          ${fp.domain}, ${c.category || category}, ${c.city ?? null}, ${c.state ?? null},
           ${c.country || ctx.profile.target_country}, ${c.public_phone ?? null},
           ${c.public_email ?? null}, ${c.source_url ?? website}, ${c.notes ?? null},
-          ${jsonParam([discovered.used])}::jsonb, ${"NEW"}, ${isDemo}, ${discovered.used}
+          ${jsonParam(sources)}::jsonb, ${"NEW"}, ${isDemo}, ${sources[0] || discovered.used}
         )
         on conflict do nothing
         returning id
       `;
       if (!inserted[0]) continue;
-      await ctx.sql`
-        insert into lead_sources (id, lead_id, workspace_id, source_name, source_url, external_id, payload)
-        values (
-          ${crypto.randomUUID()}, ${inserted[0].id}, ${ctx.workspace.id}, ${discovered.used},
-          ${c.source_url ?? null}, ${c.external_id ?? null}, ${jsonParam({ city: c.city ?? null })}::jsonb
-        )
-      `;
-      domains.add(fp.domain || "");
-      names.add(fp.name);
+      await attachSources(inserted[0].id, sources, c);
+      existing.push({
+        id: inserted[0].id,
+        domain: fp.domain,
+        business_name: c.business_name,
+        city: c.city ?? null,
+        state: c.state ?? null,
+      });
       added.push(c.business_name);
-      await recordEvent(ctx.sql, ctx.workspace.id, `Scout found a new lead: ${c.business_name} (${discovered.used})`, "scout", id);
+      addedIds.push(inserted[0].id);
+      await recordEvent(
+        ctx.sql,
+        ctx.workspace.id,
+        `Scout found a new lead: ${c.business_name} (${sources.join(", ")})`,
+        "scout",
+        id,
+      );
       if (added.length >= Math.min(4, limit)) break;
     }
 
-    await ctx.sql`
-      insert into source_configs (id, workspace_id, source_key, last_success_at, last_error, error_count, request_count)
-      values (
-        ${crypto.randomUUID()}, ${ctx.workspace.id}, ${discovered.used},
-        ${new Date().toISOString()}, ${null}, ${0}, ${1}
-      )
-      on conflict (workspace_id, source_key) do update set
-        last_success_at = excluded.last_success_at,
-        last_error = null,
-        error_count = 0,
-        request_count = source_configs.request_count + 1,
-        updated_at = now()
-    `;
+    for (const key of discovered.sources_used) {
+      await touchSource(ctx, key, true);
+    }
 
-    await finishTask(ctx.sql, started.id, "completed", { added: added.length, names: added, used: discovered.used });
+    for (const leadId of addedIds) {
+      await runResearch(ctx, leadId);
+    }
+
+    await finishTask(ctx.sql, started.id, "completed", {
+      added: added.length,
+      names: added,
+      used: discovered.used,
+      sources_used: discovered.sources_used,
+    });
     return {
       id: started.id,
       agent_type: "scout",
@@ -208,6 +271,26 @@ export async function runScout(ctx: Ctx): Promise<TaskResult> {
     await finishTask(ctx.sql, started.id, "failed", undefined, message);
     return { id: started.id, agent_type: "scout", status: "failed", error: message };
   }
+}
+
+async function touchSource(ctx: Ctx, key: string, ok: boolean, error?: string) {
+  if (!key || key === "none") return;
+  await ctx.sql`
+    insert into source_configs (id, workspace_id, source_key, last_success_at, last_error, error_count, request_count)
+    values (
+      ${crypto.randomUUID()}, ${ctx.workspace.id}, ${key},
+      ${ok ? new Date().toISOString() : null},
+      ${ok ? null : error ?? "error"},
+      ${ok ? 0 : 1},
+      ${1}
+    )
+    on conflict (workspace_id, source_key) do update set
+      last_success_at = coalesce(excluded.last_success_at, source_configs.last_success_at),
+      last_error = excluded.last_error,
+      error_count = case when ${ok} then 0 else source_configs.error_count + 1 end,
+      request_count = source_configs.request_count + 1,
+      updated_at = now()
+  `;
 }
 
 export async function persistAudit(
@@ -337,6 +420,39 @@ export async function runOpportunity(ctx: Ctx, leadId: string): Promise<TaskResu
     const message = err instanceof Error ? err.message : "Opportunity failed";
     await finishTask(ctx.sql, started.id, "failed", undefined, message);
     return { id: started.id, agent_type: "opportunity", status: "failed", error: message };
+  }
+}
+
+export async function runOffer(ctx: Ctx, leadId: string): Promise<TaskResult> {
+  const started = await beginTask(ctx, "offer", { leadId }, leadId);
+  if (!started.ok) {
+    return { id: started.id ?? "none", agent_type: "offer", status: "failed", error: started.error };
+  }
+  try {
+    const lead = await loadLead(ctx.sql, ctx.workspace.id, leadId);
+    if (!lead) throw new Error("Lead not found");
+    const audits = await ctx.sql<Record<string, unknown>>`
+      select * from lead_audits
+      where lead_id = ${leadId} and workspace_id = ${ctx.workspace.id}
+      order by created_at desc limit 1
+    `;
+    if (!audits[0]) throw new Error("No audit for offer");
+    const { mapAudit } = await import("./map");
+    const audit = mapAudit(audits[0]);
+    const hits = await persistOpportunities(ctx, leadId, ctx.profile, audit);
+    const pitch = offerPitch(hits[0] ?? null, ctx.profile.offer, ctx.profile.price, ctx.profile.currency);
+    if (!hits[0]) {
+      await recordEvent(ctx.sql, ctx.workspace.id, `Offer skipped — no verified gap for ${lead.business_name}`, "offer", leadId);
+      await finishTask(ctx.sql, started.id, "completed", { pitch: null, reason: "no_verified_gap" });
+      return { id: started.id, agent_type: "offer", status: "completed", output: { pitch: null } };
+    }
+    await recordEvent(ctx.sql, ctx.workspace.id, `Offer: ${hits[0].title} → ${ctx.profile.offer}`, "offer", leadId);
+    await finishTask(ctx.sql, started.id, "completed", { pitch, title: hits[0].title });
+    return { id: started.id, agent_type: "offer", status: "completed", output: { pitch, title: hits[0].title } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Offer failed";
+    await finishTask(ctx.sql, started.id, "failed", undefined, message);
+    return { id: started.id, agent_type: "offer", status: "failed", error: message };
   }
 }
 
@@ -535,7 +651,7 @@ export async function runOutreach(ctx: Ctx, leadId: string): Promise<TaskResult>
 }
 
 export async function runMasterForLead(ctx: Ctx, leadId: string): Promise<TaskResult[]> {
-  const started = await beginTask(ctx, "master", { leadId, flow: "RESEARCH→AUDIT→OPPORTUNITY→SCORE→OUTREACH" }, leadId);
+  const started = await beginTask(ctx, "master", { leadId, flow: "RESEARCH→AUDIT→OPPORTUNITY→SCORE→OFFER→OUTREACH" }, leadId);
   if (!started.ok) {
     return [{ id: started.id ?? "none", agent_type: "master", status: "failed", error: started.error }];
   }
@@ -551,6 +667,7 @@ export async function runMasterForLead(ctx: Ctx, leadId: string): Promise<TaskRe
     if (score.status !== "completed") throw new Error(score.error || "Score failed");
     const s = Number((score.output as { score?: number } | undefined)?.score ?? 0);
     if (shouldPrepareOutreach(s, ctx.profile.min_lead_score)) {
+      results.push(await runOffer(ctx, leadId));
       results.push(await runOutreach(ctx, leadId));
     } else {
       await recordEvent(
@@ -570,6 +687,18 @@ export async function runMasterForLead(ctx: Ctx, leadId: string): Promise<TaskRe
     results.unshift({ id: started.id, agent_type: "master", status: "failed", error: message });
     return results;
   }
+}
+
+export async function researchPendingLeads(ctx: Ctx): Promise<TaskResult[]> {
+  const rows = await ctx.sql<{ id: string }>`
+    select l.id from leads l
+    where l.workspace_id = ${ctx.workspace.id}
+      and l.status = 'NEW'
+    limit 8
+  `;
+  const out: TaskResult[] = [];
+  for (const r of rows) out.push(await runResearch(ctx, r.id));
+  return out;
 }
 
 export async function auditPendingLeads(ctx: Ctx): Promise<TaskResult[]> {

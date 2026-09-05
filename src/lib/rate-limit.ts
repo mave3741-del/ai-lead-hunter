@@ -46,3 +46,12 @@ export function limitAgentRun(workspaceId: string) {
 export function limitWebsiteFetch(workspaceId: string) {
   return rateLimit(`fetch:${workspaceId}`, 12, 10 * 60 * 1000);
 }
+
+/** Per live adapter: 8 searches / minute. Prevents Overpass/Places storms. */
+export function limitSource(key: string) {
+  return rateLimit(`source:${key}`, 8, 60 * 1000);
+}
+
+export function dailySpendReached(cost: number, cap: number, demoMode: boolean): boolean {
+  return !demoMode && cost >= cap;
+}

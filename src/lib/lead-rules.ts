@@ -191,13 +191,33 @@ export function namesMatch(a: string, b: string): boolean {
 }
 
 export function isDuplicateLead(
-  incoming: { domain?: string | null; business_name: string },
-  existing: Array<{ domain?: string | null; business_name: string }>,
+  incoming: {
+    domain?: string | null;
+    business_name: string;
+    city?: string | null;
+    state?: string | null;
+  },
+  existing: Array<{
+    domain?: string | null;
+    business_name: string;
+    city?: string | null;
+    state?: string | null;
+  }>,
 ): boolean {
   const domain = incoming.domain?.replace(/^www\./, "").toLowerCase() || null;
-  if (domain && existing.some((e) => e.domain && e.domain === domain)) return true;
-  return existing.some((e) => namesMatch(e.business_name, incoming.business_name));
+  if (domain && existing.some((e) => e.domain && e.domain.replace(/^www\./, "").toLowerCase() === domain)) {
+    return true;
+  }
+  const inPlace = `${normalizeName(incoming.city || "")}|${normalizeName(incoming.state || "")}`;
+  return existing.some((e) => {
+    if (!namesMatch(e.business_name, incoming.business_name)) return false;
+    const exPlace = `${normalizeName(e.city || "")}|${normalizeName(e.state || "")}`;
+    if (inPlace === "|" && exPlace === "|") return true;
+    if (inPlace === "|" || exPlace === "|") return false;
+    return inPlace === exPlace;
+  });
 }
+
 
 export function conversionRate(won: number, contacted: number): number {
   if (contacted <= 0) return 0;

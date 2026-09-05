@@ -5,6 +5,7 @@ import {
   getAgents,
   runAuditPending,
   runGenerateDrafts,
+  runResearchPending,
   runScorePending,
   setAgentsPaused,
   startScout,
@@ -61,8 +62,11 @@ function AgentsPage() {
           <h1 className="font-display text-4xl">Agents</h1>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button disabled={!!busy || data.paused} onClick={() => run("Scout", () => startScout())}>
+          <Button disabled={!!busy || data.paused} onClick={() => run("Scout", () => startScout({ data: {} }))}>
             Start Scout
+          </Button>
+          <Button variant="secondary" disabled={!!busy || data.paused} onClick={() => run("Research pending", () => runResearchPending())}>
+            Run research
           </Button>
           <Button variant="secondary" disabled={!!busy || data.paused} onClick={() => run("Audit pending", () => runAuditPending())}>
             Run Audit

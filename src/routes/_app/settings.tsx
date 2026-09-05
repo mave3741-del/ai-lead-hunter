@@ -76,6 +76,9 @@ function SettingsPage() {
             <Field label="Currency" value={form.currency} onChange={(v) => setForm({ ...form, currency: v })} />
           </div>
           <Field label="Target niche" value={form.target_niche} onChange={(v) => setForm({ ...form, target_niche: v })} />
+          <p className="text-xs text-subtle">
+            Current MVP is dental. Later: HVAC, plumbers, roofers, electricians, real estate, salons, restaurants, law firms, SaaS, e-commerce, agencies.
+          </p>
           <Field label="Target country" value={form.target_country} onChange={(v) => setForm({ ...form, target_country: v })} />
           <Field
             label="Minimum lead score"

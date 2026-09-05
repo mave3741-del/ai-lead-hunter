@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { discoverLeads, fingerprint, listSourceHealth, productionAdapters } from "./registry.ts";
+import { discoverLeads, fingerprint, listSourceHealth, mergeCandidates, productionAdapters } from "./registry.ts";
+import { osmAdapter } from "./osm.ts";
+import { googlePlacesAdapter, serperAdapter } from "./places.ts";
 
 describe("source health", () => {
   it("locks the demo pool in production mode", () => {
@@ -17,6 +19,13 @@ describe("source health", () => {
     assert.equal(places?.requires_key, true);
     if (!process.env.GOOGLE_PLACES_API_KEY) {
       assert.equal(places?.status, "not_configured");
+    }
+  });
+  it("marks Serper not configured without a key", () => {
+    const serper = listSourceHealth(false).find((s) => s.key === "serper");
+    assert.equal(serper?.requires_key, true);
+    if (!process.env.SERPER_API_KEY) {
+      assert.equal(serper?.status, "not_configured");
     }
   });
   it("never includes demo_pool in production adapters", () => {
@@ -61,11 +70,71 @@ describe("discoverLeads", () => {
   });
 });
 
+describe("mergeCandidates", () => {
+  it("collapses the same clinic from two sources into one lead", () => {
+    const merged = mergeCandidates([
+      {
+        source: "osm_overpass",
+        candidates: [{ business_name: "Oak Dental", domain: "oak.example", city: "Austin", state: "TX" }],
+      },
+      {
+        source: "google_places",
+        candidates: [{ business_name: "The Oak Dental", domain: "oak.example", public_phone: "512-555-0100" }],
+      },
+    ]);
+    assert.equal(merged.length, 1);
+    assert.deepEqual(merged[0]?.sources.sort(), ["google_places", "osm_overpass"]);
+    assert.equal(merged[0]?.public_phone, "512-555-0100");
+  });
+  it("keeps distinct clinics", () => {
+    const merged = mergeCandidates([
+      { source: "osm_overpass", candidates: [{ business_name: "Oak Dental", city: "Austin", state: "TX" }] },
+      { source: "serper", candidates: [{ business_name: "Oak Dental", city: "Denver", state: "CO" }] },
+    ]);
+    assert.equal(merged.length, 2);
+  });
+});
+
 describe("fingerprint", () => {
   it("normalizes domain and name for dedup", () => {
     const a = fingerprint({ business_name: "The Oak Dental", domain: "Oak.Example", city: "Austin", state: "TX" });
     const b = fingerprint({ business_name: "Oak Dental", domain: "oak.example", city: "Austin", state: "TX" });
     assert.equal(a.domain, b.domain);
     assert.equal(a.place, "austin|tx");
+  });
+});
+
+describe("adapter honesty", () => {
+  it("Places search is not_configured without a key", async () => {
+    if (process.env.GOOGLE_PLACES_API_KEY) return;
+    const r = await googlePlacesAdapter.search({
+      niche: "Dental clinics",
+      country: "United States",
+      limit: 3,
+    });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.not_configured, true);
+  });
+  it("Serper search is not_configured without a key", async () => {
+    if (process.env.SERPER_API_KEY) return;
+    const r = await serperAdapter.search({
+      niche: "Dental clinics",
+      country: "United States",
+      limit: 3,
+    });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.not_configured, true);
+  });
+  it("OSM does not invent non-dental businesses", async () => {
+    const r = await osmAdapter.search({
+      niche: "HVAC",
+      country: "United States",
+      city: "Austin",
+      limit: 5,
+    });
+    if (osmAdapter.configured()) {
+      assert.equal(r.ok, true);
+      if (r.ok) assert.equal(r.candidates.length, 0);
+    }
   });
 });

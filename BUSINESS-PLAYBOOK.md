@@ -1,38 +1,56 @@
 # Business playbook — first $100 customer
 
-Target: about **20 quality US dental clinics per day**, not thousands of junk rows. These are operating targets, not guarantees.
+Target: about **20 quality prospects per day**, not thousands of junk rows. These are operating targets, not guarantees. Current niche: US dental clinics / $100 AI Appointment Assistant.
 
-## 1. Run Scout
+## STEP 1 — Configure the offer
+Settings: offer, price ($100), currency, outreach tone, min score (75).
 
-- Demo mode on: labeled sample clinics load so you can walk the product.
-- Demo mode off: Scout uses OSM (if enabled) or a configured API. If none: you will see “No live lead source configured.” Import CSV or add a business.
+## STEP 2 — Configure a live source
+Turn **Demo mode off**. OSM Overpass works without a key. Places/Serper need server-side keys or stay **Not configured**. Or import CSV / add a business.
 
-## 2. Review leads
+## STEP 3 — Choose city / niche
+Dashboard Scout city + state. Niche lives in Settings. OSM maps the dental niche to public dentist POIs.
 
-Open **Leads**. Filter by score ≥ 75, high priority, city. Skip low-quality rows.
+## STEP 4 — Run Scout
+**Run discovery**. Production queries every ready source, merges duplicates, keeps source records. If nothing live: *No live lead source configured.*
 
-## 3. Audit
+## STEP 5 — Review candidates
+Leads list. Skip junk. Quality over volume.
 
-On a lead, **Run pipeline** (research → audit → opportunity → score → draft if qualified). Audits that cannot fetch a site stay **unknown**. We do not invent findings. Evidence URLs are shown on the lead page.
+## STEP 6 — Run research
+**Run research** or pipeline. Public name, website, location, source URL only. Never invented.
 
-## 4. Select prospects
+## STEP 7 — Run website audit
+Public HTML only. Unknown stays unknown. Evidence URLs on the lead page.
 
-Only scores at or above the threshold (default 75) get an outreach draft. Weak prospects stay in the CRM but out of the copy queue.
+## STEP 8 — Review score
+Explainable 0–100. Default threshold 75. Below threshold: no outreach draft.
 
-## 5. Approve outreach
+## STEP 9 — Generate offer
+Opportunity + offer jobs map a **verified** gap to the $100 assistant. No pitch if there is no gap.
 
-Read the evidence. **Approve**, **Edit** then approve, or **Reject**. There is no send API. **Copy** the message and send it yourself. **Mark contacted** is rejected unless the draft is approved.
+## STEP 10 — Generate outreach
+Email, contact-form, short message from evidence. Compliance runs first.
 
-Follow-up drafts also need approval. Max two follow-ups.
+## STEP 11 — Human reviews
+Approve / Edit / Reject. Nothing sends itself.
 
-## 6. Demo
+## STEP 12 — Copy and send manually
+Copy the message. Send it yourself. **Mark contacted** is rejected unless approved.
 
-Send them `/demo` — the clinic AI assistant you sell. It never diagnoses.
+## STEP 13 — Track the response
+Log the reply. Status → REPLIED / INTERESTED.
 
-## 7. Mark customers
+## STEP 14 — Offer the demo
+Send `/demo`. The assistant never diagnoses.
 
-When they pay, **Mark as won**. Default **$100 USD**.
+## STEP 15 — Close the $100 deal
+They pay. You mark **Won**.
 
-## 8. Track revenue
+## STEP 16 — Mark WON
+Server writes a $100 revenue row.
 
-Dashboard + **Revenue**: total, customers, average deal, conversion of contacted → won. Watch **Est. profit** (revenue minus today’s estimated AI cost).
+## STEP 17 — Record / review revenue
+Dashboard **First $100 goal**, Revenue page, source ROI on Sources. Est. profit = revenue minus today’s AI cost.
+
+Follow-ups: max two, each still needs approval. DO NOT CONTACT is permanent unless an admin moves the lead.

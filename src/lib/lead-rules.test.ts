@@ -125,12 +125,22 @@ describe("deduplication", () => {
       true,
     );
   });
-  it("matches normalized name", () => {
+  it("matches name only when both records lack a place", () => {
     assert.equal(
       isDuplicateLead({ domain: "other.example", business_name: "The Bright Smile Family Dental Clinic" }, existing),
       true,
     );
   });
+  it("does not treat same name in a different city as a duplicate", () => {
+    assert.equal(
+      isDuplicateLead(
+        { domain: "other.example", business_name: "Bright Smile Family Dentistry", city: "Denver", state: "CO" },
+        [{ domain: "unrelated.example", business_name: "Bright Smile Family Dentistry", city: "Austin", state: "TX" }],
+      ),
+      false,
+    );
+  });
+
   it("allows a distinct clinic", () => {
     assert.equal(
       isDuplicateLead({ domain: "oakstreetortho.example", business_name: "Oak Street Orthodontics" }, existing),

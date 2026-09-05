@@ -11,6 +11,7 @@ import {
   runScout,
   scorePendingLeads,
   auditPendingLeads,
+  researchPendingLeads,
   runFollowup,
 } from "./pipeline";
 import {
@@ -28,7 +29,7 @@ import { isDuplicateLead } from "../lead-rules";
 import { parseLeadCsv } from "../sources/csv";
 import { listSourceHealth } from "../sources/registry";
 import { parsePublicHttpUrl } from "../url-safety";
-import { limitAgentRun } from "../rate-limit";
+import { limitAgentRun, dailySpendReached } from "../rate-limit";
 import { aiAvailable } from "../ai/client";
 import { ruleBasedAssistant, DEFAULT_CLINIC, ASSISTANT_SYSTEM } from "../demo-assistant";
 import { chatCompletion } from "../ai/client";
@@ -182,6 +183,7 @@ export const getDashboard = createServerFn({ method: "GET" })
       recent: recent.map(leadFromJoin),
       events: events.map(mapEvent),
       profile: ctx.profile,
+      spendCapped: dailySpendReached(usage.cost, ctx.profile.max_daily_ai_spend, ctx.profile.demo_mode),
     };
   });
 
@@ -593,10 +595,23 @@ function guardAgent(workspaceId: string) {
 
 export const startScout = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
+  .validator((input: { city?: string; state?: string; limit?: number } | undefined) => input ?? {})
+  .handler(async ({ context, data }) => {
+    const ctx = await getCtx(context.userId);
+    guardAgent(ctx.workspace.id);
+    return runScout(ctx, {
+      city: data.city?.trim() || undefined,
+      state: data.state?.trim() || undefined,
+      limit: data.limit,
+    });
+  });
+
+export const runResearchPending = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const ctx = await getCtx(context.userId);
     guardAgent(ctx.workspace.id);
-    return runScout(ctx);
+    return researchPendingLeads(ctx);
   });
 
 export const auditLead = createServerFn({ method: "POST" })
@@ -838,14 +853,45 @@ export const listLeadSources = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const ctx = await getCtx(context.userId);
+    const roiRows = await ctx.sql<{
+      source: string;
+      leads: number;
+      qualified: number;
+      contacted: number;
+      replies: number;
+      won: number;
+      revenue: number;
+    }>`
+      select
+        ls.source_name as source,
+        count(distinct ls.lead_id)::int as leads,
+        count(distinct ls.lead_id) filter (
+          where l.status in ('QUALIFIED','DRAFT_READY','APPROVED','CONTACTED','FOLLOW_UP_1','FOLLOW_UP_2','REPLIED','INTERESTED','DEMO','NEGOTIATION','WON')
+        )::int as qualified,
+        count(distinct ls.lead_id) filter (
+          where l.status in ('CONTACTED','FOLLOW_UP_1','FOLLOW_UP_2','REPLIED','INTERESTED','DEMO','NEGOTIATION','WON')
+        )::int as contacted,
+        count(distinct ls.lead_id) filter (
+          where l.status in ('REPLIED','INTERESTED','DEMO','NEGOTIATION','WON')
+        )::int as replies,
+        count(distinct ls.lead_id) filter (where l.status = 'WON')::int as won,
+        coalesce(sum(r.revenue), 0) as revenue
+      from lead_sources ls
+      join leads l on l.id = ls.lead_id
+      left join revenue_records r on r.lead_id = l.id
+      where ls.workspace_id = ${ctx.workspace.id}
+      group by ls.source_name
+    `;
+    const roi = new Map(roiRows.map((r) => [r.source, r]));
     const configs = await ctx.sql<{
       source_key: string;
+      enabled: boolean;
       last_success_at: string | null;
       last_error: string | null;
       error_count: number;
       request_count: number;
     }>`
-      select source_key, last_success_at, last_error, error_count, request_count
+      select source_key, enabled, last_success_at, last_error, error_count, request_count
       from source_configs where workspace_id = ${ctx.workspace.id}
     `;
     const byKey = new Map(configs.map((c) => [c.source_key, c]));
@@ -853,15 +899,49 @@ export const listLeadSources = createServerFn({ method: "GET" })
       demo_mode: ctx.profile.demo_mode,
       sources: listSourceHealth(ctx.profile.demo_mode).map((s) => {
         const c = byKey.get(s.key);
+        const r = roi.get(s.key);
+        const enabled = c?.enabled ?? s.enabled;
         return {
           ...s,
+          enabled,
+          status: !enabled && s.status === "ready" ? "disabled" : s.status,
           last_success_at: c?.last_success_at ? String(c.last_success_at) : null,
           last_error: c?.last_error ?? s.last_error ?? null,
           error_count: num(c?.error_count),
           request_count: num(c?.request_count),
+          leads: num(r?.leads),
+          qualified: num(r?.qualified),
+          contacted: num(r?.contacted),
+          replies: num(r?.replies),
+          won: num(r?.won),
+          revenue: num(r?.revenue),
         };
       }),
     };
+  });
+
+export const setSourceEnabled = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { key: string; enabled: boolean }) => input)
+  .handler(async ({ context, data }) => {
+    const ctx = await getCtx(context.userId);
+    if (data.key === "demo_pool" && data.enabled && !ctx.profile.demo_mode) {
+      throw new Error("Demo pool cannot be enabled in production mode");
+    }
+    await ctx.sql`
+      insert into source_configs (id, workspace_id, source_key, enabled)
+      values (${crypto.randomUUID()}, ${ctx.workspace.id}, ${data.key}, ${data.enabled})
+      on conflict (workspace_id, source_key) do update set
+        enabled = excluded.enabled,
+        updated_at = now()
+    `;
+    await recordEvent(
+      ctx.sql,
+      ctx.workspace.id,
+      `${data.key} ${data.enabled ? "enabled" : "disabled"}`,
+      "scout",
+    );
+    return { ok: true };
   });
 
 export const importLeadsCsv = createServerFn({ method: "POST" })
@@ -899,7 +979,7 @@ export const importLeadsCsv = createServerFn({ method: "POST" })
           country, public_phone, public_email, source_url, notes, tags, status, is_demo, source
         ) values (
           ${id}, ${ctx.workspace.id}, ${row.business_name}, ${website}, ${domain},
-          ${"Dental clinic"}, ${row.city ?? null}, ${row.state ?? null},
+          ${ctx.profile.target_niche || "Dental clinics"}, ${row.city ?? null}, ${row.state ?? null},
           ${row.country || ctx.profile.target_country}, ${row.phone ?? null}, ${row.email ?? null},
           ${website}, ${"Imported from CSV"}, ${jsonParam(["csv"])}::jsonb, ${"NEW"}, ${false}, ${"csv"}
         )
