@@ -1,0 +1,16 @@
+AI Lead Hunter — source release
+================================
+Complete TypeScript source for the AI Lead Hunter MVP.
+
+Includes:
+- src/ application (dashboard, leads, agents, demo assistant)
+- migrations/ Postgres schema
+- tests, scripts, README.md, env.example
+
+Does not include node_modules.
+
+Run:
+  npm install
+  npm run dev
+
+Demo (preview): hunter@example.com / leadhunter1

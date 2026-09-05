@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0c0e12;
+  --surface: #15181e;
+  --surface-2: #1c2028;
+  --fg: #f1ece3;
+  --muted: #9a958c;
+  --subtle: #6e6a63;
+  --border: color-mix(in oklab, var(--fg) 12%, transparent);
+  --accent: #e8e2d6;
+  --accent-fg: #0c0e12;
+  --ring: #c5d4c8;
+  --ok: #7d9a86;
+  --warn: #c4a574;
+  --danger: #c47a72;
+  --info: #8aa0b8;
+  --shadow: 0 18px 40px color-mix(in oklab, #000 35%, transparent);
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --motion-quick: 150ms;
+  --motion-fast: 250ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html.light {
+  --bg: #f3efe6;
+  --surface: #fffcf7;
+  --surface-2: #eae4d8;
+  --fg: #1b1814;
+  --muted: #6b6560;
+  --subtle: #8a847c;
+  --border: color-mix(in oklab, var(--fg) 12%, transparent);
+  --accent: #1b1814;
+  --accent-fg: #f3efe6;
+  --ring: #4d6b5c;
+  --ok: #2f5d40;
+  --warn: #8a6230;
+  --danger: #9a4038;
+  --info: #3d5570;
+  --shadow: 0 18px 40px color-mix(in oklab, #1b1814 10%, transparent);
+}
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-ring: var(--ring);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  html.light {
+    color-scheme: light;
+  }
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 35%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
