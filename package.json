@@ -17,7 +17,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/lead-rules.test.ts src/lib/url-safety.test.ts src/lib/rate-limit.test.ts src/lib/demo-assistant.test.ts src/lib/ai/retry.test.ts src/lib/agents/auditor.test.ts src/lib/agents/outreach.test.ts src/lib/workspace-isolation.test.ts src/lib/sources/csv.test.ts src/lib/sources/registry.test.ts src/lib/agents/compliance.test.ts src/lib/agents/opportunity.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/lead-rules.test.ts src/lib/url-safety.test.ts src/lib/rate-limit.test.ts src/lib/demo-assistant.test.ts src/lib/ai/retry.test.ts src/lib/agents/auditor.test.ts src/lib/agents/outreach.test.ts src/lib/workspace-isolation.test.ts src/lib/sources/csv.test.ts src/lib/sources/registry.test.ts src/lib/agents/compliance.test.ts src/lib/agents/opportunity.test.ts src/lib/agents/research.test.ts",
     "seed": "node --experimental-strip-types scripts/seed.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."

@@ -64,6 +64,16 @@ export function listSourceHealth(demoMode: boolean): SourceHealth[] {
   });
 }
 
+export const DEFAULT_SCOUT_CITIES = [
+  "Austin",
+  "Denver",
+  "Portland",
+  "Nashville",
+  "Raleigh",
+  "Columbus",
+  "Tampa",
+];
+
 export function productionAdapters(): LeadSourceAdapter[] {
   return ALL_ADAPTERS.filter((a) => a.key !== "demo_pool" && a.configured());
 }
@@ -86,12 +96,17 @@ export async function discoverLeads(opts: {
       used: "none",
     };
   }
+  const cities = opts.args.city?.trim()
+    ? [opts.args.city.trim()]
+    : DEFAULT_SCOUT_CITIES.slice(0, 2);
   const errors: string[] = [];
   for (const adapter of live) {
-    const r = await adapter.search(opts.args);
-    if (r.ok && r.candidates.length > 0) return { ...r, used: adapter.key };
-    if (r.ok) errors.push(`${adapter.key}: 0 results`);
-    else errors.push(`${adapter.key}: ${r.error}`);
+    for (const city of cities) {
+      const r = await adapter.search({ ...opts.args, city });
+      if (r.ok && r.candidates.length > 0) return { ...r, used: adapter.key };
+      if (r.ok) errors.push(`${adapter.key}/${city}: 0 results`);
+      else errors.push(`${adapter.key}/${city}: ${r.error}`);
+    }
   }
   return {
     ok: false,

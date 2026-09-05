@@ -34,8 +34,12 @@ function ExperimentsPage() {
             <dl className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
               <div><dt className="text-muted">Prospects</dt><dd className="font-display text-2xl">{m.total_leads}</dd></div>
               <div><dt className="text-muted">Contacted</dt><dd className="font-display text-2xl">{m.contacted}</dd></div>
+              <div><dt className="text-muted">Replied</dt><dd className="font-display text-2xl">{m.replied}</dd></div>
+              <div><dt className="text-muted">Interested</dt><dd className="font-display text-2xl">{m.interested}</dd></div>
+              <div><dt className="text-muted">Demos</dt><dd className="font-display text-2xl">{m.demos}</dd></div>
               <div><dt className="text-muted">Won</dt><dd className="font-display text-2xl">{m.won}</dd></div>
               <div><dt className="text-muted">Revenue</dt><dd className="font-display text-2xl">{formatMoney(m.revenue)}</dd></div>
+              <div><dt className="text-muted">Est. profit</dt><dd className="font-display text-2xl">{formatMoney(m.estimated_profit)}</dd></div>
             </dl>
           ) : null}
         </Card>

@@ -46,6 +46,9 @@ describe("html heuristic", () => {
     assert.equal(a.after_hours_help, true);
     assert.ok(a.confidence > 50);
     assert.ok(a.observations.length > 0);
+    assert.equal(a.website_status, "active");
+    assert.equal(a.appointment_flow, "strong");
+    assert.ok((a.evidence ?? []).some((e) => /appointment/i.test(e.finding)));
   });
   it("does not invent a chatbot on a brochure page", () => {
     const html = `<html><body><h1>Smith Dental</h1><p>Call (555) 0100</p></body></html>`;

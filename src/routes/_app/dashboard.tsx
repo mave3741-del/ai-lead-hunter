@@ -8,7 +8,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getDashboard, startScout } from "@/lib/server/fns";
+import {
+  getDashboard,
+  runAuditPending,
+  runGenerateDrafts,
+  runScorePending,
+  setAgentsPaused,
+  startScout,
+} from "@/lib/server/fns";
 import { Badge, Button, Card } from "@/components/ui";
 import { PriorityBadge, ScorePip, StatusBadge } from "@/components/status";
 import { formatMoney, relativeTime } from "@/lib/utils";
@@ -29,20 +36,19 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
 
 function Dashboard() {
   const q = useQuery({ queryKey: ["dashboard"], queryFn: () => getDashboard() });
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const data = q.data;
 
-  async function scout() {
-    setBusy(true);
+  async function run(label: string, fn: () => Promise<unknown>) {
+    setBusy(label);
     try {
-      const res = await startScout();
-      if (res.status === "failed") throw new Error(res.error);
-      toast.success("Scout finished");
+      await fn();
+      toast.success(label);
       await q.refetch();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Scout failed");
+      toast.error(err instanceof Error ? err.message : label);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
@@ -58,6 +64,7 @@ function Dashboard() {
 
   const m = data.metrics;
   const chart = data.byStatus.map((s) => ({ name: s.status.replaceAll("_", " "), n: s.n }));
+  const paused = data.profile.agents_paused;
 
   return (
     <div className="space-y-8 pb-16">
@@ -65,54 +72,102 @@ function Dashboard() {
         <div>
           <p className="text-[11px] uppercase tracking-[0.16em] text-muted">Command</p>
           <h1 className="font-display text-4xl">Lead desk</h1>
+          <p className="mt-1 text-sm text-muted">
+            Target {data.profile.daily_lead_target} quality prospects/day. Net revenue is the scoreboard.
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void scout()} disabled={busy || data.profile.agents_paused}>
-            Start Scout
+          <Button disabled={!!busy || paused} onClick={() => void run("Scout finished", () => startScout())}>
+            Run discovery
+          </Button>
+          <Button variant="secondary" disabled={!!busy || paused} onClick={() => void run("Audits done", () => runAuditPending())}>
+            Run audits
+          </Button>
+          <Button variant="secondary" disabled={!!busy || paused} onClick={() => void run("Scored", () => runScorePending())}>
+            Score leads
+          </Button>
+          <Button variant="secondary" disabled={!!busy || paused} onClick={() => void run("Drafts ready", () => runGenerateDrafts())}>
+            Generate drafts
+          </Button>
+          <Button
+            variant={paused ? "primary" : "outline"}
+            disabled={!!busy}
+            onClick={() => void run(paused ? "Agents resumed" : "Agents paused", () => setAgentsPaused({ data: !paused }))}
+          >
+            {paused ? "Resume agents" : "Pause all"}
           </Button>
           <Link to="/leads">
-            <Button variant="secondary">All leads</Button>
+            <Button variant="ghost">All leads</Button>
           </Link>
         </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Today's prospects" value={String(m.today_prospects)} hint={`Daily target ${data.profile.daily_lead_target}`} />
         <Metric label="Total leads" value={String(m.total_leads)} />
-        <Metric label="New" value={String(m.new_leads)} />
         <Metric label="Qualified" value={String(m.qualified_leads)} />
         <Metric label="High priority" value={String(m.high_priority_leads)} />
-        <Metric label="Contacted" value={String(m.contacted)} />
-        <Metric label="Interested" value={String(m.interested)} />
-        <Metric label="Won" value={String(m.won)} />
         <Metric label="Drafts ready" value={String(m.drafts_ready)} />
+        <Metric label="Approved outreach" value={String(m.approved)} />
+        <Metric label="Contacted" value={String(m.contacted)} />
+        <Metric label="Replies" value={String(m.replied)} />
+        <Metric label="Interested" value={String(m.interested)} />
         <Metric label="Demos" value={String(m.demos)} />
+        <Metric label="Customers" value={String(m.customers)} hint={`${m.conversion_rate}% of contacted`} />
         <Metric
           label="Revenue"
           value={formatMoney(m.revenue, data.profile.currency)}
-          hint={`${m.conversion_rate}% of contacted · avg ${formatMoney(m.average_deal, data.profile.currency)}`}
+          hint={`Avg ${formatMoney(m.average_deal, data.profile.currency)}`}
         />
+        <Metric label="AI cost today" value={formatMoney(m.ai_cost_today, data.profile.currency)} hint={`${m.ai_calls_today} calls`} />
         <Metric
           label="Est. profit"
           value={formatMoney(m.estimated_profit, data.profile.currency)}
-          hint={`AI cost today ${formatMoney(m.ai_cost_today, data.profile.currency)}`}
+          hint="Revenue minus today's AI cost"
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <p className="text-[11px] uppercase tracking-[0.12em] text-muted">Pipeline</p>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-muted">Leads by status</p>
           <div className="mt-4 h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chart}>
                 <XAxis dataKey="name" tick={{ fill: "var(--muted)", fontSize: 11 }} interval={0} angle={-30} textAnchor="end" height={60} />
                 <YAxis allowDecimals={false} tick={{ fill: "var(--muted)", fontSize: 11 }} />
-                <Tooltip
-                  contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--fg)" }}
-                />
+                <Tooltip contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--fg)" }} />
                 <Bar dataKey="n" fill="var(--accent)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </Card>
+        <Card>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-muted">Score distribution</p>
+          <div className="mt-4 h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.scoreBuckets}>
+                <XAxis dataKey="bucket" tick={{ fill: "var(--muted)", fontSize: 11 }} />
+                <YAxis allowDecimals={false} tick={{ fill: "var(--muted)", fontSize: 11 }} />
+                <Tooltip contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", color: "var(--fg)" }} />
+                <Bar dataKey="n" fill="var(--accent)" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-muted">Source performance</p>
+          <ul className="mt-4 space-y-2">
+            {data.bySource.length === 0 ? (
+              <li className="text-sm text-muted">No sources yet.</li>
+            ) : (
+              data.bySource.map((s) => (
+                <li key={s.source} className="flex items-center justify-between text-sm">
+                  <span className="capitalize">{s.source.replaceAll("_", " ")}</span>
+                  <span className="tabular-nums text-muted">{s.n}</span>
+                </li>
+              ))
+            )}
+          </ul>
         </Card>
         <Card>
           <p className="text-[11px] uppercase tracking-[0.12em] text-muted">Activity</p>

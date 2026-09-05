@@ -9,6 +9,8 @@ import {
   averageDeal,
   isDuplicateLead,
   shouldPrepareOutreach,
+  nextFollowupSequence,
+  MAX_FOLLOWUPS,
 } from "./lead-rules.ts";
 import type { AuditResult } from "./types.ts";
 
@@ -143,5 +145,14 @@ describe("revenue math", () => {
     assert.equal(conversionRate(0, 0), 0);
     assert.equal(averageDeal(100, 1), 100);
     assert.equal(averageDeal(250, 2), 125);
+  });
+});
+
+describe("follow-up cap", () => {
+  it("allows two follow-ups then refuses", () => {
+    assert.equal(MAX_FOLLOWUPS, 2);
+    assert.equal(nextFollowupSequence(0), 1);
+    assert.equal(nextFollowupSequence(1), 2);
+    assert.throws(() => nextFollowupSequence(2), /Follow-up limit/);
   });
 });

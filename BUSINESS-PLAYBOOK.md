@@ -13,7 +13,7 @@ Open **Leads**. Filter by score ≥ 75, high priority, city. Skip low-quality ro
 
 ## 3. Audit
 
-On a lead, **Run pipeline** (research → audit → score → draft if qualified). Audits that cannot fetch a site stay **unknown**. We do not invent findings.
+On a lead, **Run pipeline** (research → audit → opportunity → score → draft if qualified). Audits that cannot fetch a site stay **unknown**. We do not invent findings. Evidence URLs are shown on the lead page.
 
 ## 4. Select prospects
 

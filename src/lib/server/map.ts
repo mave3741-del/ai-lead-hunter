@@ -60,6 +60,27 @@ export function mapAudit(row: Record<string, unknown>): AuditResult & { id: stri
     opportunities: asStringArray(row.opportunities),
     observations: asStringArray(row.observations),
     confidence: num(row.confidence),
+    website_status: (row.website_status as AuditResult["website_status"]) || "unknown",
+    appointment_flow: (row.appointment_flow as AuditResult["appointment_flow"]) || "unknown",
+    evidence: (() => {
+      const raw = Array.isArray(row.evidence)
+        ? row.evidence
+        : typeof row.evidence === "string"
+          ? (JSON.parse(row.evidence) as unknown)
+          : [];
+      if (!Array.isArray(raw)) return [];
+      return raw
+        .map((item) => {
+          if (item && typeof item === "object" && "finding" in item) {
+            return {
+              finding: String((item as { finding: unknown }).finding),
+              source_url: String((item as { source_url?: unknown }).source_url ?? ""),
+            };
+          }
+          return null;
+        })
+        .filter((item): item is { finding: string; source_url: string } => Boolean(item));
+    })(),
     created_at: iso(row.created_at) ?? new Date().toISOString(),
   };
 }

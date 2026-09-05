@@ -13,7 +13,7 @@ It does not invent businesses.
 | Key | Live? | Credentials | Notes |
 |---|---|---|---|
 | `demo_pool` | Demo mode only | none | Labeled sample US dental clinics |
-| `osm_overpass` | Yes, public OSM | none | Dentists from OpenStreetMap Overpass. Permitted map data. Rate-limited. Disable with `OSM_OVERPASS_ENABLED=false`. |
+| `osm_overpass` | Yes, public OSM | none | Dentists from OpenStreetMap Overpass. Permitted map data. Rate-limited. Default cities: Austin then Denver if none specified. Disable with `OSM_OVERPASS_ENABLED=false`. |
 | `google_places` | Adapter ready | `GOOGLE_PLACES_API_KEY` | Shows **Not configured** until the key is set server-side |
 | `serper` | Adapter ready | `SERPER_API_KEY` | Same — not claimed live without a key |
 | `csv` | Always | none | Import on **Sources** |

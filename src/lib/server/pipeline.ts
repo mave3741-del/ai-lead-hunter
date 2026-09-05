@@ -5,8 +5,9 @@ import { discoverLeads, fingerprint } from "../sources/registry";
 import { detectOpportunities, offerPitch } from "../agents/opportunity";
 import { reviewDraftBundle } from "../agents/compliance";
 import { runWebsiteAudit } from "../agents/auditor";
+import { researchBusiness } from "../agents/research";
 import { generateOutreach, templateOutreach } from "../agents/outreach";
-import { calculateScore, shouldPrepareOutreach, statusAfterAudit, statusAfterDraft } from "../lead-rules";
+import { calculateScore, nextFollowupSequence, shouldPrepareOutreach, statusAfterAudit, statusAfterDraft } from "../lead-rules";
 import { aiAvailable, estimateCostUsd } from "../ai/client";
 import { domainFromUrl, normalizeName } from "../utils";
 import { addUsage, recordEvent, todayUsage, type Ctx } from "./workspace";
@@ -113,6 +114,17 @@ export async function runScout(ctx: Ctx): Promise<TaskResult> {
 
     if (!discovered.ok) {
       await recordEvent(ctx.sql, ctx.workspace.id, discovered.error, "scout");
+      if (discovered.used !== "none") {
+        await ctx.sql`
+          insert into source_configs (id, workspace_id, source_key, last_error, error_count, request_count)
+          values (${crypto.randomUUID()}, ${ctx.workspace.id}, ${discovered.used}, ${discovered.error}, ${1}, ${1})
+          on conflict (workspace_id, source_key) do update set
+            last_error = excluded.last_error,
+            error_count = source_configs.error_count + 1,
+            request_count = source_configs.request_count + 1,
+            updated_at = now()
+        `;
+      }
       await finishTask(ctx.sql, started.id, "completed", {
         added: 0,
         reason: discovered.error,
@@ -170,6 +182,20 @@ export async function runScout(ctx: Ctx): Promise<TaskResult> {
       if (added.length >= Math.min(4, limit)) break;
     }
 
+    await ctx.sql`
+      insert into source_configs (id, workspace_id, source_key, last_success_at, last_error, error_count, request_count)
+      values (
+        ${crypto.randomUUID()}, ${ctx.workspace.id}, ${discovered.used},
+        ${new Date().toISOString()}, ${null}, ${0}, ${1}
+      )
+      on conflict (workspace_id, source_key) do update set
+        last_success_at = excluded.last_success_at,
+        last_error = null,
+        error_count = 0,
+        request_count = source_configs.request_count + 1,
+        updated_at = now()
+    `;
+
     await finishTask(ctx.sql, started.id, "completed", { added: added.length, names: added, used: discovered.used });
     return {
       id: started.id,
@@ -194,22 +220,45 @@ export async function persistAudit(
     insert into lead_audits (
       id, lead_id, workspace_id, appointment_available, chatbot_present, faq_present,
       lead_capture_present, after_hours_help, mobile_experience, contact_flow_clear,
-      activity_signals, opportunities, observations, confidence, raw_json
+      activity_signals, opportunities, observations, confidence, raw_json,
+      website_status, appointment_flow, evidence
     ) values (
       ${id}, ${leadId}, ${ctx.workspace.id},
       ${audit.appointment_available}, ${audit.chatbot_present}, ${audit.faq_present},
       ${audit.lead_capture_present}, ${audit.after_hours_help}, ${audit.mobile_experience},
       ${audit.contact_flow_clear}, ${audit.activity_signals},
       ${jsonParam(audit.opportunities)}::jsonb, ${jsonParam(audit.observations)}::jsonb,
-      ${audit.confidence}, ${jsonParam(audit)}::jsonb
+      ${audit.confidence}, ${jsonParam(audit)}::jsonb,
+      ${audit.website_status ?? "unknown"}, ${audit.appointment_flow ?? "unknown"},
+      ${jsonParam(audit.evidence ?? [])}::jsonb
     )
   `;
   return id;
 }
 
+export async function persistOpportunities(ctx: Ctx, leadId: string, profile: BusinessProfile, audit: AuditResult) {
+  const hits = detectOpportunities(audit, profile.offer);
+  const existing = await ctx.sql<{ n: number }>`
+    select count(*)::int as n from opportunities
+    where lead_id = ${leadId} and workspace_id = ${ctx.workspace.id}
+  `;
+  if (Number(existing[0]?.n ?? 0) === 0) {
+    for (const hit of hits) {
+      await ctx.sql`
+        insert into opportunities (id, lead_id, workspace_id, title, offer, evidence)
+        values (
+          ${crypto.randomUUID()}, ${leadId}, ${ctx.workspace.id}, ${hit.title}, ${hit.offer},
+          ${jsonParam(hit.evidence)}::jsonb
+        )
+      `;
+    }
+  }
+  return hits;
+}
+
 export async function persistScore(ctx: Ctx, leadId: string, profile: BusinessProfile, audit: AuditResult) {
   const scored = calculateScore(audit, profile.offer);
-  const hits = detectOpportunities(audit, profile.offer);
+  const hits = await persistOpportunities(ctx, leadId, profile, audit);
   const pitch = offerPitch(hits[0] ?? null, profile.offer, profile.price, profile.currency);
   const id = crypto.randomUUID();
   await ctx.sql`
@@ -220,19 +269,75 @@ export async function persistScore(ctx: Ctx, leadId: string, profile: BusinessPr
       ${jsonParam(scored.reasons)}::jsonb, ${scored.recommended_offer}, ${scored.estimated_value}
     )
   `;
-  for (const hit of hits) {
-    await ctx.sql`
-      insert into opportunities (id, lead_id, workspace_id, title, offer, evidence)
-      values (
-        ${crypto.randomUUID()}, ${leadId}, ${ctx.workspace.id}, ${hit.title}, ${hit.offer},
-        ${jsonParam(hit.evidence)}::jsonb
-      )
-    `;
-  }
-  if (hits[0]) {
-    await recordEvent(ctx.sql, ctx.workspace.id, `Opportunity: ${hits[0].title}`, "opportunity", leadId);
-  }
   return { ...scored, recommended_offer: pitch || scored.recommended_offer };
+}
+
+export async function runResearch(ctx: Ctx, leadId: string): Promise<TaskResult> {
+  const started = await beginTask(ctx, "research", { leadId }, leadId);
+  if (!started.ok) {
+    return { id: started.id ?? "none", agent_type: "research", status: "failed", error: started.error };
+  }
+  try {
+    const lead = await loadLead(ctx.sql, ctx.workspace.id, leadId);
+    if (!lead) throw new Error("Lead not found");
+    await setStatus(ctx.sql, ctx.workspace.id, leadId, "RESEARCHING");
+    const notes = researchBusiness({
+      business_name: lead.business_name,
+      website: lead.website,
+      city: lead.city,
+      state: lead.state,
+      public_phone: lead.public_phone,
+      public_email: lead.public_email,
+      source_url: lead.source_url,
+    });
+    await recordEvent(
+      ctx.sql,
+      ctx.workspace.id,
+      `Research: ${notes.notes[0] ?? lead.business_name} (${notes.website_status})`,
+      "research",
+      leadId,
+    );
+    await finishTask(ctx.sql, started.id, "completed", { ...notes });
+    return { id: started.id, agent_type: "research", status: "completed", output: { ...notes } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Research failed";
+    await finishTask(ctx.sql, started.id, "failed", undefined, message);
+    return { id: started.id, agent_type: "research", status: "failed", error: message };
+  }
+}
+
+export async function runOpportunity(ctx: Ctx, leadId: string): Promise<TaskResult> {
+  const started = await beginTask(ctx, "opportunity", { leadId }, leadId);
+  if (!started.ok) {
+    return { id: started.id ?? "none", agent_type: "opportunity", status: "failed", error: started.error };
+  }
+  try {
+    const lead = await loadLead(ctx.sql, ctx.workspace.id, leadId);
+    if (!lead) throw new Error("Lead not found");
+    const audits = await ctx.sql<Record<string, unknown>>`
+      select * from lead_audits
+      where lead_id = ${leadId} and workspace_id = ${ctx.workspace.id}
+      order by created_at desc limit 1
+    `;
+    if (!audits[0]) throw new Error("No audit to analyze");
+    const { mapAudit } = await import("./map");
+    const audit = mapAudit(audits[0]);
+    const hits = await persistOpportunities(ctx, leadId, ctx.profile, audit);
+    const pitch = offerPitch(hits[0] ?? null, ctx.profile.offer, ctx.profile.price, ctx.profile.currency);
+    await recordEvent(
+      ctx.sql,
+      ctx.workspace.id,
+      hits[0] ? `Opportunity: ${hits[0].title}` : `No verified gap mapped for ${lead.business_name}`,
+      "opportunity",
+      leadId,
+    );
+    await finishTask(ctx.sql, started.id, "completed", { hits, pitch });
+    return { id: started.id, agent_type: "opportunity", status: "completed", output: { hits, pitch } };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Opportunity failed";
+    await finishTask(ctx.sql, started.id, "failed", undefined, message);
+    return { id: started.id, agent_type: "opportunity", status: "failed", error: message };
+  }
 }
 
 async function demoAuditFor(leadName: string, website: string | null): Promise<AuditResult | null> {
@@ -430,15 +535,17 @@ export async function runOutreach(ctx: Ctx, leadId: string): Promise<TaskResult>
 }
 
 export async function runMasterForLead(ctx: Ctx, leadId: string): Promise<TaskResult[]> {
-  const started = await beginTask(ctx, "master", { leadId, flow: "DISCOVER→AUDIT→SCORE→QUALIFY→OUTREACH" }, leadId);
+  const started = await beginTask(ctx, "master", { leadId, flow: "RESEARCH→AUDIT→OPPORTUNITY→SCORE→OUTREACH" }, leadId);
   if (!started.ok) {
     return [{ id: started.id ?? "none", agent_type: "master", status: "failed", error: started.error }];
   }
   const results: TaskResult[] = [];
   try {
+    results.push(await runResearch(ctx, leadId));
     const audit = await runAudit(ctx, leadId);
     results.push(audit);
     if (audit.status !== "completed") throw new Error(audit.error || "Audit failed");
+    results.push(await runOpportunity(ctx, leadId));
     const score = await runScore(ctx, leadId);
     results.push(score);
     if (score.status !== "completed") throw new Error(score.error || "Score failed");
@@ -524,8 +631,7 @@ export async function runFollowup(ctx: Ctx, leadId: string): Promise<TaskResult>
       select count(*)::int as n from outreach_drafts
       where lead_id = ${leadId} and workspace_id = ${ctx.workspace.id} and draft_kind = 'followup'
     `;
-    const seq = Number(existing[0]?.n ?? 0) + 1;
-    if (seq > 2) throw new Error("Follow-up limit reached (2). Do not spam.");
+    const seq = nextFollowupSequence(Number(existing[0]?.n ?? 0));
     const email = `Hi ${lead.business_name} team,\n\nJust checking whether a short walkthrough of an appointment assistant would still be useful. Happy to keep this brief.\n\nBest`;
     const short = `Hi — following up on the appointment assistant note. Happy to show a 2-minute demo if useful.`;
     const compliance = reviewDraftBundle({

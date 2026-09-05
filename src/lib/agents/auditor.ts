@@ -55,6 +55,11 @@ const auditSchema = z.object({
   opportunities: z.array(z.string()).default([]),
   observations: z.array(z.string()).default([]),
   confidence: z.number().min(0).max(100),
+  website_status: z.enum(["active", "unavailable", "none", "unknown"]).optional(),
+  appointment_flow: z.enum(["strong", "weak", "unknown"]).optional(),
+  evidence: z
+    .array(z.object({ finding: z.string(), source_url: z.string() }))
+    .optional(),
 });
 
 export function unknownAudit(): AuditResult {
@@ -70,6 +75,9 @@ export function unknownAudit(): AuditResult {
     opportunities: [],
     observations: [],
     confidence: 0,
+    website_status: "unknown",
+    appointment_flow: "unknown",
+    evidence: [],
   };
 }
 
@@ -81,6 +89,9 @@ export function parseAudit(input: unknown): AuditResult {
     opportunities: parsed.data.opportunities.filter(Boolean).slice(0, 8),
     observations: parsed.data.observations.filter(Boolean).slice(0, 8),
     confidence: Math.round(parsed.data.confidence),
+    website_status: parsed.data.website_status ?? "unknown",
+    appointment_flow: parsed.data.appointment_flow ?? "unknown",
+    evidence: (parsed.data.evidence ?? []).slice(0, 8),
   };
 }
 
@@ -146,6 +157,14 @@ export function auditHtml(html: string, finalUrl?: string): AuditResult {
 
   const known = [chatbot, appointment, faq, form, afterHours].length;
   const confidence = Math.min(92, 40 + known * 8 + (viewport ? 8 : 0));
+  const source = finalUrl || "";
+  const evidence = [
+    { finding: chatbot ? "Chat widget signature found" : "No chatbot widget signatures found", source_url: source },
+    { finding: appointment ? "Online appointment language present" : "No online appointment language found", source_url: source },
+    { finding: faq ? "FAQ section present" : "No FAQ section found", source_url: source },
+    { finding: form ? "Public form present" : "No public lead-capture form found", source_url: source },
+    { finding: afterHours ? "After-hours language present" : "No after-hours assistance language found", source_url: source },
+  ].filter((e) => e.source_url);
 
   return {
     appointment_available: appointment,
@@ -159,6 +178,9 @@ export function auditHtml(html: string, finalUrl?: string): AuditResult {
     opportunities: opportunities.slice(0, 6),
     observations: observations.slice(0, 8),
     confidence,
+    website_status: "active",
+    appointment_flow: appointment ? "strong" : "weak",
+    evidence,
   };
 }
 
@@ -168,7 +190,10 @@ export async function runWebsiteAudit(opts: {
 }): Promise<{ audit: AuditResult; source: "heuristic" | "ai" | "unavailable"; error?: string }> {
   const fetched = await fetchPublicHtml(opts.website);
   if (!fetched.ok) {
-    return { audit: unknownAudit(), source: "unavailable", error: fetched.error };
+    const missing = unknownAudit();
+    missing.website_status = "unavailable";
+    missing.observations = [`Public website could not be fetched: ${fetched.error}`];
+    return { audit: missing, source: "unavailable", error: fetched.error };
   }
   const heuristic = auditHtml(fetched.html, fetched.url);
   if (!opts.useAi) return { audit: heuristic, source: "heuristic" };

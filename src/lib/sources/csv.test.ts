@@ -14,4 +14,10 @@ describe("CSV import", () => {
     assert.equal(r.rows.length, 0);
     assert.ok(r.errors[0]?.includes("business_name"));
   });
+  it("handles quoted commas and aliases", () => {
+    const r = parseLeadCsv('name,city,phone\n"Oak, Dental",Austin,"(512) 555-0100"');
+    assert.equal(r.rows.length, 1);
+    assert.equal(r.rows[0]?.business_name, "Oak, Dental");
+    assert.equal(r.rows[0]?.phone, "(512) 555-0100");
+  });
 });

@@ -58,6 +58,13 @@ function SourcesPage() {
               </Badge>
             </div>
             <p className="mt-2 text-sm text-muted">{s.detail}</p>
+            {"request_count" in s && s.request_count ? (
+              <p className="mt-2 text-xs text-subtle">
+                {s.request_count} requests
+                {s.last_success_at ? ` · last ok ${new Date(String(s.last_success_at)).toLocaleString()}` : ""}
+                {s.last_error ? ` · last error: ${s.last_error}` : ""}
+              </p>
+            ) : null}
             {s.requires_key ? (
               <p className="mt-2 text-xs text-subtle">API key stays server-side. Never sent to the browser.</p>
             ) : null}

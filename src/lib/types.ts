@@ -68,6 +68,13 @@ export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 export type MobileExperience = "good" | "average" | "poor" | "unknown";
 export type ActivitySignals = "strong" | "average" | "weak" | "unknown";
 export type EstimatedValue = "low" | "medium" | "high";
+export type WebsiteStatus = "active" | "unavailable" | "none" | "unknown";
+export type AppointmentFlow = "strong" | "weak" | "unknown";
+
+export type AuditEvidence = {
+  finding: string;
+  source_url: string;
+};
 
 export type AuditResult = {
   appointment_available: boolean | null;
@@ -81,7 +88,11 @@ export type AuditResult = {
   opportunities: string[];
   observations: string[];
   confidence: number;
+  website_status?: WebsiteStatus;
+  appointment_flow?: AppointmentFlow;
+  evidence?: AuditEvidence[];
 };
+
 
 export type ScoreResult = {
   score: number;
@@ -166,8 +177,19 @@ export type LeadDetail = Lead & {
     approval_status: ApprovalStatus;
     generated_at: string;
     approved_at: string | null;
+    draft_kind: string;
+    compliance_status: string;
+    sequence: number;
   }>;
   revenue: { id: string; revenue: number; offer: string; won_at: string } | null;
+  opportunities: Array<{ id: string; title: string; offer: string; evidence: string[] }>;
+  sources: Array<{
+    id: string;
+    source_name: string;
+    source_url: string | null;
+    discovered_at: string;
+  }>;
+  events: AgentEvent[];
 };
 
 export type AgentTask = {
@@ -210,6 +232,8 @@ export type DashboardMetrics = {
   replied: number;
   demos: number;
   estimated_profit: number;
+  today_prospects: number;
+  approved: number;
   ai_calls_today: number;
   ai_cost_today: number;
   tasks_completed: number;

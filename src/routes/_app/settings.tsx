@@ -118,6 +118,17 @@ function SettingsPage() {
         </form>
       </Card>
       <Card>
+        <h2 className="font-display text-2xl">Source providers</h2>
+        <p className="mt-2 text-sm text-muted">
+          API keys stay on the server. OSM Overpass is public (no key). Google Places and Serper
+          show <strong>Not configured</strong> until you set <code>GOOGLE_PLACES_API_KEY</code> or{" "}
+          <code>SERPER_API_KEY</code>. Production Scout never uses sample clinics.
+        </p>
+        <p className="mt-3 text-sm text-muted">
+          Manage adapters, CSV import, and health on the Sources page.
+        </p>
+      </Card>
+      <Card>
         <h2 className="font-display text-2xl">Demo data</h2>
         <p className="mt-2 text-sm text-muted">
           Reloads the 20 sample US dental clinics. Live-added leads in this workspace will be removed.

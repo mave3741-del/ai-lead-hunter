@@ -33,6 +33,8 @@ describe("URL validation", () => {
     assert.equal(parsePublicHttpUrl("http://192.168.1.1/").ok, false);
     assert.equal(parsePublicHttpUrl("http://172.16.5.1/").ok, false);
     assert.equal(parsePublicHttpUrl("http://0.0.0.0/").ok, false);
+    assert.equal(parsePublicHttpUrl("http://[fd12:3456::1]/").ok, false);
+    assert.equal(parsePublicHttpUrl("http://[fe80::1]/").ok, false);
   });
 });
 

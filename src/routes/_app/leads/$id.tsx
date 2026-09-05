@@ -35,7 +35,9 @@ function LeadDetail() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const lead = q.data;
-  const draft = lead?.drafts[0];
+  const outreachDrafts = (lead?.drafts ?? []).filter((d) => d.draft_kind !== "followup");
+  const followups = (lead?.drafts ?? []).filter((d) => d.draft_kind === "followup");
+  const draft = outreachDrafts[0] ?? lead?.drafts[0];
 
   useEffect(() => {
     if (edit && draft) {
@@ -137,6 +139,8 @@ function LeadDetail() {
               <Row k="Lead capture" v={yn(lead.audit.lead_capture_present)} />
               <Row k="After hours" v={yn(lead.audit.after_hours_help)} />
               <Row k="Mobile" v={lead.audit.mobile_experience} />
+              <Row k="Website" v={lead.audit.website_status ?? "unknown"} />
+              <Row k="Appt flow" v={lead.audit.appointment_flow ?? "unknown"} />
               <Row k="Confidence" v={`${lead.audit.confidence}`} />
             </dl>
           ) : (
@@ -161,6 +165,85 @@ function LeadDetail() {
           </ul>
         </Card>
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <h2 className="font-display text-2xl">Business & source</h2>
+          <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <Row k="Category" v={lead.category} />
+            <Row k="Source" v={lead.source.replaceAll("_", " ")} />
+            <Row k="Website" v={lead.website ?? "None"} />
+            <Row k="Domain" v={lead.domain ?? "—"} />
+            <Row k="Phone" v={lead.public_phone ?? "—"} />
+            <Row k="Email" v={lead.public_email ?? "—"} />
+          </dl>
+          {(lead.sources ?? []).length > 0 ? (
+            <ul className="mt-4 space-y-1 text-sm text-muted">
+              {lead.sources.map((s) => (
+                <li key={s.id}>
+                  {s.source_name}
+                  {s.source_url ? (
+                    <>
+                      {" · "}
+                      <a className="underline-offset-4 hover:underline" href={s.source_url} target="_blank" rel="noreferrer">
+                        {s.source_url}
+                      </a>
+                    </>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : lead.source_url ? (
+            <p className="mt-3 text-sm">
+              <a className="underline-offset-4 hover:underline" href={lead.source_url} target="_blank" rel="noreferrer">
+                {lead.source_url}
+              </a>
+            </p>
+          ) : null}
+        </Card>
+        <Card>
+          <h2 className="font-display text-2xl">Opportunity</h2>
+          {(lead.opportunities ?? []).length === 0 ? (
+            <p className="mt-3 text-sm text-muted">No verified gap yet. Run the pipeline.</p>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {lead.opportunities.map((o) => (
+                <li key={o.id}>
+                  <p className="font-medium">{o.title}</p>
+                  <p className="text-sm text-muted">{o.offer}</p>
+                  <ul className="mt-1 list-disc pl-4 text-xs text-subtle">
+                    {o.evidence.map((e) => (
+                      <li key={e}>{e}</li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-4 text-sm">{lead.score_record?.recommended_offer ?? "AI Appointment Assistant · $100"}</p>
+        </Card>
+      </div>
+
+      {lead.audit?.evidence && lead.audit.evidence.length > 0 ? (
+        <Card>
+          <h2 className="font-display text-2xl">Audit evidence</h2>
+          <ul className="mt-4 space-y-2 text-sm">
+            {lead.audit.evidence.map((e, i) => (
+              <li key={`${e.finding}-${i}`}>
+                {e.finding}
+                {e.source_url ? (
+                  <span className="text-muted">
+                    {" · "}
+                    <a className="underline-offset-4 hover:underline" href={e.source_url} target="_blank" rel="noreferrer">
+                      {e.source_url}
+                    </a>
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -272,6 +355,50 @@ function LeadDetail() {
           <p className="mt-3 text-sm text-muted">No draft yet. Qualify the lead first.</p>
         )}
       </Card>
+
+      {followups.length > 0 ? (
+        <Card>
+          <h2 className="font-display text-2xl">Follow-ups</h2>
+          <p className="mt-1 text-xs text-muted">Also require human approval. Cap of two.</p>
+          <div className="mt-4 space-y-4">
+            {followups.map((f) => (
+              <div key={f.id} className="rounded-[var(--radius-md)] border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Follow-up {f.sequence || 1}</p>
+                  <Badge tone={f.approval_status === "approved" ? "ok" : "warn"}>{f.approval_status}</Badge>
+                </div>
+                <pre className="mt-2 whitespace-pre-wrap text-sm">{f.email_draft}</pre>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <h2 className="font-display text-2xl">Timeline</h2>
+          <ul className="mt-4 space-y-3">
+            {(lead.events ?? []).length === 0 ? (
+              <li className="text-sm text-muted">No events yet.</li>
+            ) : (
+              lead.events.map((ev) => (
+                <li key={ev.id} className="border-b border-border pb-2 last:border-0">
+                  <p className="text-sm">{ev.message}</p>
+                  <p className="text-xs text-subtle">{formatDateTime(ev.created_at)}</p>
+                </li>
+              ))
+            )}
+          </ul>
+        </Card>
+        <Card>
+          <h2 className="font-display text-2xl">Revenue</h2>
+          {lead.revenue ? (
+            <p className="mt-3 font-display text-3xl">{lead.revenue.offer} · recorded {formatDateTime(lead.revenue.won_at)}</p>
+          ) : (
+            <p className="mt-3 text-sm text-muted">No payment recorded. Mark as won after they pay $100.</p>
+          )}
+        </Card>
+      </div>
 
       <Card>
         <h2 className="font-display text-2xl">Pipeline status</h2>

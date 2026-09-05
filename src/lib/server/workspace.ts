@@ -116,14 +116,14 @@ export async function seedDemoLeads(sql: Sql, workspaceId: string, profile: Busi
         insert into leads (
           id, workspace_id, campaign_id, business_name, website, domain, category,
           city, state, country, public_phone, public_email, source_url, notes, tags,
-          status, is_demo, response, created_at, updated_at
+          status, is_demo, response, created_at, updated_at, source
         ) values (
           ${leadId}, ${workspaceId}, ${campaignId}, ${clinic.business_name}, ${clinic.website},
           ${clinic.domain}, ${clinic.category}, ${clinic.city}, ${clinic.state}, ${clinic.country},
           ${clinic.public_phone}, ${clinic.public_email}, ${clinic.source_url}, ${clinic.notes},
           ${jsonParam(clinic.tags)}::jsonb, ${clinic.status}, ${true}, ${clinic.response ?? null},
           now() - (${Math.floor(Math.random() * 12)}::text || ' days')::interval,
-          now()
+          now(), ${"demo_pool"}
         )
         on conflict do nothing
       `;

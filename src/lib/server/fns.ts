@@ -88,6 +88,8 @@ export const getDashboard = createServerFn({ method: "GET" })
         (select count(*)::int from leads where workspace_id = ${ws} and status in ('INTERESTED','DEMO','WON')) as interested,
         (select count(*)::int from leads where workspace_id = ${ws} and status = 'WON') as won,
         (select count(*)::int from leads where workspace_id = ${ws} and status = 'DRAFT_READY') as drafts_ready,
+        (select count(*)::int from leads where workspace_id = ${ws} and status = 'APPROVED') as approved,
+        (select count(*)::int from leads where workspace_id = ${ws} and created_at >= current_date) as today_prospects,
         (select count(*)::int from leads where workspace_id = ${ws} and status in ('REPLIED','INTERESTED','DEMO','NEGOTIATION','WON')) as replied,
         (select count(*)::int from leads where workspace_id = ${ws} and status in ('DEMO','NEGOTIATION','WON')) as demos,
         (select coalesce(sum(revenue),0) from revenue_records where workspace_id = ${ws}) as revenue,
@@ -117,6 +119,8 @@ export const getDashboard = createServerFn({ method: "GET" })
       replied: num(r.replied),
       demos: num(r.demos),
       estimated_profit: Math.round((revenue - usage.cost) * 100) / 100,
+      today_prospects: num(r.today_prospects),
+      approved: num(r.approved),
       ai_calls_today: usage.calls,
       ai_cost_today: usage.cost,
       tasks_completed: num(r.tasks_completed),
@@ -144,9 +148,37 @@ export const getDashboard = createServerFn({ method: "GET" })
       order by created_at desc limit 8
     `;
 
+    const bySource = await ctx.sql<{ source: string; n: number }>`
+      select source, count(*)::int as n from leads
+      where workspace_id = ${ws} group by source order by n desc
+    `;
+    const scoreRows = await ctx.sql<{ bucket: string; n: number }>`
+      select
+        case
+          when coalesce(s.score, 0) < 50 then '0-49'
+          when s.score < 75 then '50-74'
+          when s.score < 90 then '75-89'
+          else '90-100'
+        end as bucket,
+        count(*)::int as n
+      from leads l
+      left join lateral (
+        select score from lead_scores where lead_id = l.id order by created_at desc limit 1
+      ) s on true
+      where l.workspace_id = ${ws}
+      group by 1
+    `;
+    const scoreOrder = ["0-49", "50-74", "75-89", "90-100"];
+    const scoreBuckets = scoreOrder.map((bucket) => ({
+      bucket,
+      n: num(scoreRows.find((s) => s.bucket === bucket)?.n),
+    }));
+
     return {
       metrics,
       byStatus: orderedStatus,
+      bySource: bySource.map((s) => ({ source: s.source, n: num(s.n) })),
+      scoreBuckets,
       recent: recent.map(leadFromJoin),
       events: events.map(mapEvent),
       profile: ctx.profile,
@@ -269,6 +301,9 @@ export const getLead = createServerFn({ method: "POST" })
         approval_status: String(d.approval_status) as ApprovalStatus,
         generated_at: String(d.generated_at),
         approved_at: d.approved_at ? String(d.approved_at) : null,
+        draft_kind: String(d.draft_kind ?? "outreach"),
+        compliance_status: String(d.compliance_status ?? "SAFE"),
+        sequence: num(d.sequence),
       })),
       revenue: rev[0]
         ? {
@@ -278,6 +313,35 @@ export const getLead = createServerFn({ method: "POST" })
             won_at: String(rev[0].won_at),
           }
         : null,
+      opportunities: (
+        await ctx.sql<Record<string, unknown>>`
+          select * from opportunities where lead_id = ${id} and workspace_id = ${ctx.workspace.id}
+          order by created_at desc
+        `
+      ).map((o) => ({
+        id: String(o.id),
+        title: String(o.title),
+        offer: String(o.offer),
+        evidence: asStringArray(o.evidence),
+      })),
+      sources: (
+        await ctx.sql<Record<string, unknown>>`
+          select * from lead_sources where lead_id = ${id} and workspace_id = ${ctx.workspace.id}
+          order by discovered_at desc
+        `
+      ).map((s) => ({
+        id: String(s.id),
+        source_name: String(s.source_name),
+        source_url: s.source_url ? String(s.source_url) : null,
+        discovered_at: String(s.discovered_at),
+      })),
+      events: (
+        await ctx.sql<Record<string, unknown>>`
+          select * from agent_events
+          where lead_id = ${id} and workspace_id = ${ctx.workspace.id}
+          order by created_at desc limit 20
+        `
+      ).map(mapEvent),
     };
   });
 
@@ -324,6 +388,10 @@ export const createLead = createServerFn({ method: "POST" })
       )
     `;
     await recordEvent(ctx.sql, ctx.workspace.id, `Manual lead added: ${name}`, "scout", id);
+    await ctx.sql`
+      insert into lead_sources (id, lead_id, workspace_id, source_name, source_url)
+      values (${crypto.randomUUID()}, ${id}, ${ctx.workspace.id}, ${"manual"}, ${website})
+    `;
     return { id };
   });
 
@@ -453,6 +521,11 @@ export const decideDraft = createServerFn({ method: "POST" })
           and status in ('DRAFT_READY','QUALIFIED','APPROVED')
       `;
       await recordEvent(ctx.sql, ctx.workspace.id, "Outreach approved by a human", "manager", data.leadId);
+      await ctx.sql`
+        update followups
+        set approval_status = ${"approved"}, approved_at = now()
+        where id = ${data.draftId} and workspace_id = ${ctx.workspace.id}
+      `;
     } else if (data.action === "reject") {
       await ctx.sql`
         update outreach_drafts
@@ -464,6 +537,11 @@ export const decideDraft = createServerFn({ method: "POST" })
         where id = ${data.leadId} and workspace_id = ${ctx.workspace.id}
       `;
       await recordEvent(ctx.sql, ctx.workspace.id, "Outreach rejected — do not contact", "manager", data.leadId);
+      await ctx.sql`
+        update followups
+        set approval_status = ${"rejected"}
+        where id = ${data.draftId} and workspace_id = ${ctx.workspace.id}
+      `;
     } else {
       if (!data.email_draft || !data.short_message) throw new Error("Edited copy is required");
       await ctx.sql`
@@ -760,9 +838,29 @@ export const listLeadSources = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const ctx = await getCtx(context.userId);
+    const configs = await ctx.sql<{
+      source_key: string;
+      last_success_at: string | null;
+      last_error: string | null;
+      error_count: number;
+      request_count: number;
+    }>`
+      select source_key, last_success_at, last_error, error_count, request_count
+      from source_configs where workspace_id = ${ctx.workspace.id}
+    `;
+    const byKey = new Map(configs.map((c) => [c.source_key, c]));
     return {
       demo_mode: ctx.profile.demo_mode,
-      sources: listSourceHealth(ctx.profile.demo_mode),
+      sources: listSourceHealth(ctx.profile.demo_mode).map((s) => {
+        const c = byKey.get(s.key);
+        return {
+          ...s,
+          last_success_at: c?.last_success_at ? String(c.last_success_at) : null,
+          last_error: c?.last_error ?? s.last_error ?? null,
+          error_count: num(c?.error_count),
+          request_count: num(c?.request_count),
+        };
+      }),
     };
   });
 
@@ -809,6 +907,10 @@ export const importLeadsCsv = createServerFn({ method: "POST" })
       existing.push({ domain, business_name: row.business_name });
       added += 1;
       names.push(row.business_name);
+      await ctx.sql`
+        insert into lead_sources (id, lead_id, workspace_id, source_name, source_url)
+        values (${crypto.randomUUID()}, ${id}, ${ctx.workspace.id}, ${row.source || "csv"}, ${website})
+      `;
     }
     await recordEvent(ctx.sql, ctx.workspace.id, `CSV import: ${added} added, ${skipped} skipped`, "scout");
     return { added, skipped, errors: parsed.errors, names };

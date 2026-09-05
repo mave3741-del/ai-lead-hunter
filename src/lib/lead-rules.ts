@@ -214,3 +214,12 @@ export function problemSummary(audit: AuditResult | null, reasons: string[]): st
   if (audit?.observations?.[0]) return audit.observations[0];
   return "Needs review";
 }
+
+export const MAX_FOLLOWUPS = 2;
+
+export function nextFollowupSequence(existingCount: number): number {
+  if (existingCount >= MAX_FOLLOWUPS) {
+    throw new Error("Follow-up limit reached (2). Do not spam.");
+  }
+  return existingCount + 1;
+}
