@@ -1,73 +1,77 @@
 # AI Lead Hunter
 
+**MVP v1.0.0** — find, audit, score, and draft outreach for US dental clinics.
+Human approval required. Not a spam bot.
+
 Find legitimate US dental clinics that can use an **AI Appointment Assistant** ($100 one-time setup), audit their public website, score the fit, draft outreach, and wait for a human before anything is copied out.
 
-This is not a spam bot, not a mass-mailer, and not a fake-engagement tool. It uses permitted public business information only. **Outreach never sends itself.**
+This is not a mass-mailer and not a fake-engagement tool. It uses permitted public business information only. **Outreach never sends itself.**
 
-## What it does
+Repo: [github.com/mave3741-del/ai-lead-hunter](https://github.com/mave3741-del/ai-lead-hunter)
 
-1. **Scout** — collect public clinic records (manual entry + demo pool). Deduplicate by domain and name.
-2. **Audit** — inspect the public website for booking, chatbot, FAQ, lead capture, after-hours help, mobile quality. Unknown stays unknown.
-3. **Score** — explainable 0–100. Default outreach threshold is 75. Weak prospects stay out of the draft queue.
-4. **Draft** — email / contact-form / short message from verified observations only.
-5. **Human approval** — Approve, Edit, or Reject. Copy Message. Mark contacted only after approval.
-6. **Track** — statuses from NEW through WON / LOST / DO_NOT_CONTACT, plus manual revenue.
-
-The Master agent coordinates: Discover → Audit → Score → Qualify → Create outreach → Human approval → Track response.
-
-## Architecture
-
-TanStack Start (React + Vite) · TypeScript · Postgres (Neon in production, PGLite in preview) · Tailwind · Zod · Better Auth.
-
-Agents are **jobs**, not six always-on models. Each run is stored as an `agent_tasks` row (`id`, agent type, status, timestamps, input, output, error, retry count).
-
-Demo mode (default) uses sample clinics, HTML heuristics, and templates. Live mode can call an AI provider for richer audit/outreach copy when a server-side key is present.
-
-## Pages
-
-- `/` overview
-- `/login` Google, X, or email/password
-- `/dashboard` metrics
-- `/leads` table + filters
-- `/leads/:id` audit, score, approval
-- `/agents` control center + event stream
-- `/tasks` job log
-- `/settings` offer, niche, caps, demo mode
-- `/demo` the clinic assistant you sell
-
-## Installation / local run
+## Quick start
 
 ```bash
+git clone https://github.com/mave3741-del/ai-lead-hunter.git
+cd ai-lead-hunter
 npm install
 npm run dev
 ```
 
-Also available:
+App: [http://localhost:8080](http://localhost:8080)
 
 ```bash
-npm run seed       # explains auto-seed (per workspace on first dashboard load)
 npm test
 npm run lint
 npm run typecheck
 npm run build
 ```
 
-The app listens on port 8080.
+Sign up on `/login` with email and password (or Google / X). First dashboard load seeds **20 sample US dental clinics**. Demo mode is on by default — full pipeline without a paid API key.
 
-Sign up on `/login` with email and password (or Google / X). First dashboard load seeds **20 sample US dental clinics** into your workspace. Demo mode stays on by default so you can walk the full pipeline without a paid API key.
-
-Example preview account (already seeded in this environment):
+Preview account (this environment only):
 
 - Email: `hunter@example.com`
 - Password: `leadhunter1`
 
 Workspaces are isolated — another account never sees these leads.
 
-## Environment variables
+## What it does
 
-Do not put secrets in the client. Platform / server injects these.
+1. **Scout** — collect public clinic records (manual entry + demo pool). Deduplicate by domain and name.
+2. **Audit** — inspect the public website for booking, chatbot, FAQ, lead capture, after-hours help, mobile quality. Unknown stays unknown.
+3. **Score** — explainable 0–100. Default outreach threshold is 75.
+4. **Draft** — email / contact-form / short message from verified observations only.
+5. **Human approval** — Approve, Edit, or Reject. Copy Message. Mark contacted only after approval.
+6. **Track** — statuses from NEW through WON / LOST / DO_NOT_CONTACT, plus manual revenue.
 
-Copy `env.example` to a local `.env` (never commit it). Placeholders only.
+Master agent: Discover → Audit → Score → Qualify → Create outreach → Human approval → Track response.
+
+## Pages
+
+| Path | Purpose |
+|---|---|
+| `/` | Overview |
+| `/login` | Google, X, or email/password |
+| `/dashboard` | Metrics |
+| `/leads` | Table + filters |
+| `/leads/:id` | Audit, score, approval |
+| `/agents` | Control center + event stream |
+| `/tasks` | Job log |
+| `/settings` | Offer, niche, caps, demo mode |
+| `/demo` | Clinic assistant you sell |
+
+## Architecture
+
+TanStack Start (React + Vite) · TypeScript · Postgres (Neon in production, PGLite in preview) · Tailwind · Zod · Better Auth.
+
+Agents are **jobs**, not six always-on models. Each run is an `agent_tasks` row (`id`, agent type, status, timestamps, input, output, error, retry count).
+
+Demo mode uses sample clinics, HTML heuristics, and templates. Live mode can call an AI provider when a server-side key is present.
+
+## Environment
+
+Copy `env.example` to `.env`. Never commit secrets. Do not prefix provider keys with `VITE_`.
 
 | Variable | Purpose |
 |---|---|
@@ -80,11 +84,9 @@ Copy `env.example` to a local `.env` (never commit it). Placeholders only.
 | `OPENROUTER_API_KEY` | OpenRouter |
 | `ENABLE_DEMO_MODE` | `false` to default new workspaces to live mode |
 
-Auth client ids are injected by the platform. Never expose provider keys with a `VITE_` prefix.
-
 ## Database
 
-Schema lives in `migrations/`:
+Schema in `migrations/`:
 
 - `0001_auth.sql` — Better Auth
 - `0002_schema.sql` — workspaces, business profiles, leads, audits, scores, drafts, tasks, events, campaigns, revenue, AI usage
@@ -95,11 +97,11 @@ Every row is scoped to a workspace owned by the signed-in `user_id`. Server func
 
 ## Demo mode
 
-Default on. When enabled:
+Default on:
 
 - No real outbound email
 - No paid APIs required
-- 20 sample US dental clinics (scores from 42 to 91, including below-threshold and do-not-contact)
+- 20 sample US dental clinics (scores 42–91, including below-threshold and do-not-contact)
 - Scout pulls additional quality prospects from a reserved pool
 - Auditor / outreach use heuristics and templates
 
@@ -107,16 +109,11 @@ Turn it off in Settings when you have a provider key and want live website fetch
 
 ## Agent workflow
 
-From **Agents**:
-
-- Start Scout
-- Score pending leads
-- Generate outreach drafts
-- Pause / resume all
+From **Agents**: Start Scout, score pending leads, generate outreach drafts, pause / resume all.
 
 From a lead: **Run pipeline** executes audit → score → draft (draft only if score ≥ minimum).
 
-Caps: max concurrent tasks (default 5), max daily AI spend, retries for 429/5xx/timeout only (not invalid keys or unsafe URLs).
+Caps: max concurrent tasks (default 5), max daily AI spend, retries for 429/5xx/timeout only.
 
 ## Security
 
@@ -127,14 +124,6 @@ Caps: max concurrent tasks (default 5), max daily AI spend, retries for 429/5xx/
 - Zod validation of model JSON
 - Rate limits on expensive runs
 - Approval gate: `canSendOutreach` is false until status is `approved`
-
-## Adding an AI provider
-
-Set `AI_PROVIDER` and the matching `*_API_KEY`. The client talks OpenAI-compatible `/chat/completions` (xAI default model `grok-4.5`). On retryable failure the orchestrator may fall back to xAI if `XAI_API_KEY` is also set. Invalid keys are not retried.
-
-## Deploy
-
-Production build is Vercel via the existing Vite/Nitro pipeline. Provide `DATABASE_URL` and auth credentials (injected on this platform). Keep demo mode on until you are ready for live fetches.
 
 ## How to find leads
 
@@ -160,6 +149,29 @@ Mandatory. There is no send API. Mark contacted is rejected unless the latest dr
 - No medical claims in outreach or in the clinic assistant
 - CAN-SPAM / anti-spam: a person chooses whether a specific, evidence-based note goes out
 
+## Deploy
+
+This is a Node + Postgres app, not a static site. GitHub Pages is not enough.
+
+**Recommended: Vercel + Neon**
+
+1. Create a Neon Postgres database and copy `DATABASE_URL`.
+2. Import this repo in [Vercel](https://vercel.com/new).
+3. Set env vars: `DATABASE_URL`, `XAI_API_KEY` (or another provider), `ENABLE_DEMO_MODE=true` until live fetches are ready.
+4. Deploy. Auth client IDs are injected by the platform or set in Vercel env.
+
+Keep demo mode on until you are ready for live website fetches.
+
+**Make the repo private (optional)**
+
+GitHub app → repo → **Settings** → **General** → Danger Zone → **Change repository visibility** → Private.
+
+Private is better if you are selling the product and do not want the source public. Vercel can still deploy a private repo if your GitHub account is connected.
+
+## License
+
+Proprietary. See [LICENSE](LICENSE). Evaluation viewing only unless you have a written license.
+
 ## Extensibility
 
-Scoring, scout pools, and the business profile `target_niche` are the seams for HVAC, salons, law, etc. MVP niche is US dental clinics.
+Scoring, scout pools, and `target_niche` are the seams for HVAC, salons, law, etc. MVP niche is US dental clinics.
