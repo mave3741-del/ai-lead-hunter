@@ -23,6 +23,8 @@ describe("URL validation", () => {
   it("rejects localhost and metadata", () => {
     assert.equal(parsePublicHttpUrl("http://localhost/admin").ok, false);
     assert.equal(parsePublicHttpUrl("http://127.0.0.1/").ok, false);
+    assert.equal(parsePublicHttpUrl("http://0.0.0.0/").ok, false);
+    assert.equal(parsePublicHttpUrl("http://[::1]/").ok, false);
     assert.equal(parsePublicHttpUrl("http://169.254.169.254/latest/meta-data").ok, false);
     assert.equal(parsePublicHttpUrl("http://metadata.google.internal/").ok, false);
   });

@@ -24,6 +24,7 @@ function SettingsPage() {
     contact_email: "",
     max_concurrent_tasks: 5,
     max_daily_ai_spend: 5,
+    daily_lead_target: 20,
     demo_mode: true,
   });
 
@@ -42,6 +43,7 @@ function SettingsPage() {
       contact_email: p.contact_email ?? "",
       max_concurrent_tasks: p.max_concurrent_tasks,
       max_daily_ai_spend: p.max_daily_ai_spend,
+      daily_lead_target: p.daily_lead_target ?? 20,
       demo_mode: p.demo_mode,
     });
   }, [p]);
@@ -96,6 +98,12 @@ function SettingsPage() {
               type="number"
               value={String(form.max_daily_ai_spend)}
               onChange={(v) => setForm({ ...form, max_daily_ai_spend: Number(v) })}
+            />
+            <Field
+              label="Daily lead target"
+              type="number"
+              value={String(form.daily_lead_target)}
+              onChange={(v) => setForm({ ...form, daily_lead_target: Number(v) })}
             />
           </div>
           <label className="flex h-11 items-center gap-3 text-sm">

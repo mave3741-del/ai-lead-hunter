@@ -17,12 +17,19 @@ import type { AgentType } from "@/lib/types";
 export const Route = createFileRoute("/_app/agents")({ component: AgentsPage });
 
 const LABELS: Record<AgentType, { name: string; blurb: string }> = {
-  master: { name: "Master", blurb: "Orchestrates discover → audit → score → outreach → approval." },
-  scout: { name: "Scout", blurb: "Finds permitted public clinic records. Quality over volume." },
-  auditor: { name: "Website auditor", blurb: "Reads public pages. Never invents findings." },
-  scorer: { name: "Lead scoring", blurb: "Explainable 0–100 score from verified signals." },
+  master: { name: "Master", blurb: "Orchestrates discover → research → audit → score → outreach → approval." },
+  scout: { name: "Scout", blurb: "Live adapters in production. Sample pool only in demo mode." },
+  research: { name: "Research", blurb: "Public business facts with a source URL. Never invents." },
+  auditor: { name: "Website auditor", blurb: "Reads public pages. Unknown stays unknown." },
+  opportunity: { name: "Opportunity", blurb: "Maps verified gaps to the $100 assistant offer." },
+  scorer: { name: "Lead scoring", blurb: "Explainable 0–100 from verified signals." },
+  offer: { name: "Offer strategy", blurb: "Ties the pitch to an observed problem." },
   outreach: { name: "Outreach writer", blurb: "Drafts copy from evidence. Does not send." },
+  followup: { name: "Follow-up", blurb: "Human-approved follow-up drafts. Cap of two." },
   manager: { name: "Lead manager", blurb: "Status, approval, revenue, do-not-contact." },
+  revenue: { name: "Revenue", blurb: "Won deals and $100 default." },
+  analytics: { name: "Analytics", blurb: "Funnel and cost on the dashboard." },
+  compliance: { name: "Compliance", blurb: "Blocks deceptive, medical, or spammy drafts." },
 };
 
 function AgentsPage() {

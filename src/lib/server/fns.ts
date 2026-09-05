@@ -11,6 +11,7 @@ import {
   runScout,
   scorePendingLeads,
   auditPendingLeads,
+  runFollowup,
 } from "./pipeline";
 import {
   assertCanSend,
@@ -24,6 +25,8 @@ import type { ApprovalStatus, DashboardMetrics, Lead, LeadFilters, LeadStatus } 
 import { AGENT_TYPES } from "../types";
 import { domainFromUrl, num, asStringArray } from "../utils";
 import { isDuplicateLead } from "../lead-rules";
+import { parseLeadCsv } from "../sources/csv";
+import { listSourceHealth } from "../sources/registry";
 import { parsePublicHttpUrl } from "../url-safety";
 import { limitAgentRun } from "../rate-limit";
 import { aiAvailable } from "../ai/client";
@@ -84,6 +87,9 @@ export const getDashboard = createServerFn({ method: "GET" })
         (select count(*)::int from leads where workspace_id = ${ws} and status in ('CONTACTED','REPLIED','INTERESTED','DEMO','WON')) as contacted,
         (select count(*)::int from leads where workspace_id = ${ws} and status in ('INTERESTED','DEMO','WON')) as interested,
         (select count(*)::int from leads where workspace_id = ${ws} and status = 'WON') as won,
+        (select count(*)::int from leads where workspace_id = ${ws} and status = 'DRAFT_READY') as drafts_ready,
+        (select count(*)::int from leads where workspace_id = ${ws} and status in ('REPLIED','INTERESTED','DEMO','NEGOTIATION','WON')) as replied,
+        (select count(*)::int from leads where workspace_id = ${ws} and status in ('DEMO','NEGOTIATION','WON')) as demos,
         (select coalesce(sum(revenue),0) from revenue_records where workspace_id = ${ws}) as revenue,
         (select count(*)::int from revenue_records where workspace_id = ${ws}) as customers,
         (select count(*)::int from agent_tasks where workspace_id = ${ws} and status = 'completed') as tasks_completed,
@@ -107,6 +113,10 @@ export const getDashboard = createServerFn({ method: "GET" })
       conversion_rate: conversionRate(won, contacted),
       customers,
       average_deal: averageDeal(revenue, customers),
+      drafts_ready: num(r.drafts_ready),
+      replied: num(r.replied),
+      demos: num(r.demos),
+      estimated_profit: Math.round((revenue - usage.cost) * 100) / 100,
       ai_calls_today: usage.calls,
       ai_cost_today: usage.cost,
       tasks_completed: num(r.tasks_completed),
@@ -119,7 +129,7 @@ export const getDashboard = createServerFn({ method: "GET" })
     `;
     const order = [
       "NEW","RESEARCHING","AUDITED","QUALIFIED","DRAFT_READY","APPROVED",
-      "CONTACTED","REPLIED","INTERESTED","DEMO","WON","LOST","DO_NOT_CONTACT",
+      "CONTACTED","FOLLOW_UP_1","FOLLOW_UP_2","REPLIED","INTERESTED","DEMO","NEGOTIATION","WON","LOST","DO_NOT_CONTACT",
     ];
     const orderedStatus = order
       .map((status) => ({ status, n: num(byStatus.find((s) => s.status === status)?.n) }))
@@ -304,13 +314,13 @@ export const createLead = createServerFn({ method: "POST" })
     await ctx.sql`
       insert into leads (
         id, workspace_id, business_name, website, domain, category, city, state,
-        country, public_phone, public_email, source_url, notes, tags, status, is_demo
+        country, public_phone, public_email, source_url, notes, tags, status, is_demo, source
       ) values (
         ${id}, ${ctx.workspace.id}, ${name}, ${website}, ${domain},
         ${data.category?.trim() || "Dental clinic"}, ${data.city?.trim() || null},
         ${data.state?.trim() || null}, ${ctx.profile.target_country},
         ${data.public_phone?.trim() || null}, ${data.public_email?.trim() || null},
-        ${website}, ${data.notes?.trim() || null}, ${jsonParam(["manual"])}::jsonb, ${"NEW"}, ${false}
+        ${website}, ${data.notes?.trim() || null}, ${jsonParam(["manual"])}::jsonb, ${"NEW"}, ${false}, ${"manual"}
       )
     `;
     await recordEvent(ctx.sql, ctx.workspace.id, `Manual lead added: ${name}`, "scout", id);
@@ -373,9 +383,9 @@ export const saveLeadResponse = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const ctx = await getCtx(context.userId);
     await ctx.sql`
-      update leads set response = ${data.response}, status = ${"REPLIED"}, updated_at = now()
+      update leads set response = ${data.response}, status = ${"REPLIED"}, last_response_at = now(), updated_at = now()
       where id = ${data.id} and workspace_id = ${ctx.workspace.id}
-        and status in ('CONTACTED','REPLIED','INTERESTED','DEMO')
+        and status in ('CONTACTED','FOLLOW_UP_1','FOLLOW_UP_2','REPLIED','INTERESTED','DEMO','NEGOTIATION')
     `;
     await recordEvent(ctx.sql, ctx.workspace.id, "Response recorded", "manager", data.id);
     return { ok: true };
@@ -672,6 +682,7 @@ export const saveSettings = createServerFn({ method: "POST" })
     max_concurrent_tasks: number;
     max_daily_ai_spend: number;
     demo_mode: boolean;
+    daily_lead_target?: number;
   }) => input)
   .handler(async ({ context, data }) => {
     const ctx = await getCtx(context.userId);
@@ -679,6 +690,7 @@ export const saveSettings = createServerFn({ method: "POST" })
     const min = Math.min(100, Math.max(0, Number(data.min_lead_score) || 0));
     const conc = Math.min(20, Math.max(1, Number(data.max_concurrent_tasks) || 5));
     const spend = Math.max(0, Number(data.max_daily_ai_spend) || 0);
+    const daily = Math.min(50, Math.max(1, Number(data.daily_lead_target) || 20));
     await ctx.sql`
       update business_profiles set
         business_name = ${data.business_name.trim() || "Lead Hunter Studio"},
@@ -694,6 +706,7 @@ export const saveSettings = createServerFn({ method: "POST" })
         max_concurrent_tasks = ${conc},
         max_daily_ai_spend = ${spend},
         demo_mode = ${Boolean(data.demo_mode)},
+        daily_lead_target = ${daily},
         updated_at = now()
       where workspace_id = ${ctx.workspace.id}
     `;
@@ -741,4 +754,161 @@ export const chatDemoAssistant = createServerFn({ method: "POST" })
       quickReplies: fallback.quickReplies,
       blockedMedical: false,
     };
+  });
+
+export const listLeadSources = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const ctx = await getCtx(context.userId);
+    return {
+      demo_mode: ctx.profile.demo_mode,
+      sources: listSourceHealth(ctx.profile.demo_mode),
+    };
+  });
+
+export const importLeadsCsv = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((input: { csv: string }) => input)
+  .handler(async ({ context, data }) => {
+    const ctx = await getCtx(context.userId);
+    const parsed = parseLeadCsv(data.csv);
+    if (parsed.rows.length === 0) throw new Error(parsed.errors[0] || "No rows to import");
+    const existing = await ctx.sql<{ domain: string | null; business_name: string }>`
+      select domain, business_name from leads where workspace_id = ${ctx.workspace.id}
+    `;
+    let added = 0;
+    let skipped = 0;
+    const names: string[] = [];
+    for (const row of parsed.rows.slice(0, 50)) {
+      let website = row.website?.trim() || null;
+      if (website) {
+        const check = parsePublicHttpUrl(website);
+        if (!check.ok) {
+          skipped += 1;
+          continue;
+        }
+        website = check.url.toString();
+      }
+      const domain = domainFromUrl(website);
+      if (isDuplicateLead({ domain, business_name: row.business_name }, existing)) {
+        skipped += 1;
+        continue;
+      }
+      const id = crypto.randomUUID();
+      await ctx.sql`
+        insert into leads (
+          id, workspace_id, business_name, website, domain, category, city, state,
+          country, public_phone, public_email, source_url, notes, tags, status, is_demo, source
+        ) values (
+          ${id}, ${ctx.workspace.id}, ${row.business_name}, ${website}, ${domain},
+          ${"Dental clinic"}, ${row.city ?? null}, ${row.state ?? null},
+          ${row.country || ctx.profile.target_country}, ${row.phone ?? null}, ${row.email ?? null},
+          ${website}, ${"Imported from CSV"}, ${jsonParam(["csv"])}::jsonb, ${"NEW"}, ${false}, ${"csv"}
+        )
+      `;
+      existing.push({ domain, business_name: row.business_name });
+      added += 1;
+      names.push(row.business_name);
+    }
+    await recordEvent(ctx.sql, ctx.workspace.id, `CSV import: ${added} added, ${skipped} skipped`, "scout");
+    return { added, skipped, errors: parsed.errors, names };
+  });
+
+export const draftFollowup = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((leadId: string) => leadId)
+  .handler(async ({ context, data: leadId }) => {
+    const ctx = await getCtx(context.userId);
+    guardAgent(ctx.workspace.id);
+    return runFollowup(ctx, leadId);
+  });
+
+export const listCampaigns = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const ctx = await getCtx(context.userId);
+    const rows = await ctx.sql<Record<string, unknown>>`
+      select c.*,
+        (select count(*)::int from leads l where l.campaign_id = c.id) as leads
+      from campaigns c
+      where c.workspace_id = ${ctx.workspace.id}
+      order by c.created_at desc
+    `;
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      niche: String(r.niche),
+      country: String(r.country),
+      status: String(r.status),
+      leads: num(r.leads),
+      created_at: String(r.created_at),
+    }));
+  });
+
+export const listRevenue = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const ctx = await getCtx(context.userId);
+    const rows = await ctx.sql<Record<string, unknown>>`
+      select r.*, l.business_name
+      from revenue_records r
+      join leads l on l.id = r.lead_id
+      where r.workspace_id = ${ctx.workspace.id}
+      order by r.won_at desc
+    `;
+    const total = rows.reduce((s, r) => s + num(r.revenue), 0);
+    return {
+      rows: rows.map((r) => ({
+        id: String(r.id),
+        lead_id: String(r.lead_id),
+        business_name: String(r.business_name),
+        offer: String(r.offer),
+        revenue: num(r.revenue),
+        currency: String(r.currency),
+        won_at: String(r.won_at),
+      })),
+      total,
+      customers: rows.length,
+    };
+  });
+
+export const listExperiments = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const ctx = await getCtx(context.userId);
+    const rows = await ctx.sql<Record<string, unknown>>`
+      select * from experiments where workspace_id = ${ctx.workspace.id} order by created_at desc
+    `;
+    if (rows.length === 0) {
+      await ctx.sql`
+        insert into experiments (id, workspace_id, name, niche, offer, price, status, notes)
+        values (
+          ${crypto.randomUUID()}, ${ctx.workspace.id},
+          ${"AI Appointment Assistant for dental clinics"},
+          ${ctx.profile.target_niche}, ${ctx.profile.offer}, ${ctx.profile.price},
+          ${"active"}, ${"MVP experiment. Track contacted → won."}
+        )
+      `;
+      const again = await ctx.sql<Record<string, unknown>>`
+        select * from experiments where workspace_id = ${ctx.workspace.id} order by created_at desc
+      `;
+      return again.map((r) => ({
+        id: String(r.id),
+        name: String(r.name),
+        niche: String(r.niche),
+        offer: String(r.offer),
+        price: num(r.price),
+        status: String(r.status),
+        notes: r.notes ? String(r.notes) : null,
+      }));
+    }
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      niche: String(r.niche),
+      offer: String(r.offer),
+      price: num(r.price),
+      status: String(r.status),
+      notes: r.notes ? String(r.notes) : null,
+    }));
   });

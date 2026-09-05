@@ -9,19 +9,29 @@ import {
   Menu,
   Sun,
   Moon,
+  Radio,
+  Landmark,
+  FlaskConical,
+  Megaphone,
 } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { UserButton } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui";
 import { useTheme } from "../theme";
+import { bootstrapWorkspace } from "@/lib/server/fns";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/leads", label: "Leads", icon: Users },
+  { to: "/sources", label: "Sources", icon: Radio },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/tasks", label: "Tasks", icon: ListTodo },
+  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
+  { to: "/revenue", label: "Revenue", icon: Landmark },
+  { to: "/experiments", label: "Experiments", icon: FlaskConical },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/demo", label: "Demo", icon: MessageSquare },
 ] as const;
@@ -68,6 +78,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { user, isPending } = useCurrentUserState();
   const { theme, toggle } = useTheme();
   const [open, setOpen] = useState(false);
+  const boot = useQuery({
+    queryKey: ["bootstrap"],
+    queryFn: () => bootstrapWorkspace(),
+    enabled: Boolean(user),
+  });
+  const demo = boot.data?.profile.demo_mode;
 
   return (
     <div className="min-h-dvh bg-bg text-fg">
@@ -109,6 +125,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
             <Menu className="size-5" />
           </Button>
+          {demo ? (
+            <span className="rounded-[var(--radius-sm)] border border-border bg-surface-2 px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-warn">
+              Demo mode
+            </span>
+          ) : null}
           <div className="ml-auto flex items-center gap-2">
             <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
               {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}

@@ -15,8 +15,12 @@ import { Route as DemoRouteImport } from './routes/demo'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MaverickRouteImport } from './routes/maverick'
 import { Route as AppAgentsRouteImport } from './routes/_app/agents'
+import { Route as AppCampaignsRouteImport } from './routes/_app/campaigns'
 import { Route as AppDashboardRouteImport } from './routes/_app/dashboard'
+import { Route as AppExperimentsRouteImport } from './routes/_app/experiments'
+import { Route as AppRevenueRouteImport } from './routes/_app/revenue'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppSourcesRouteImport } from './routes/_app/sources'
 import { Route as AppTasksRouteImport } from './routes/_app/tasks'
 import { Route as AppLeadsIndexRouteImport } from './routes/_app/leads/index'
 import { Route as AppLeadsIdRouteImport } from './routes/_app/leads/$id'
@@ -51,14 +55,34 @@ const AppAgentsRoute = AppAgentsRouteImport.update({
   path: '/agents',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCampaignsRoute = AppCampaignsRouteImport.update({
+  id: '/campaigns',
+  path: '/campaigns',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
+const AppExperimentsRoute = AppExperimentsRouteImport.update({
+  id: '/experiments',
+  path: '/experiments',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRevenueRoute = AppRevenueRouteImport.update({
+  id: '/revenue',
+  path: '/revenue',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSourcesRoute = AppSourcesRouteImport.update({
+  id: '/sources',
+  path: '/sources',
   getParentRoute: () => AppRoute,
 } as any)
 const AppTasksRoute = AppTasksRouteImport.update({
@@ -88,8 +112,12 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/maverick': typeof MaverickRoute
   '/agents': typeof AppAgentsRoute
+  '/campaigns': typeof AppCampaignsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/experiments': typeof AppExperimentsRoute
+  '/revenue': typeof AppRevenueRoute
   '/settings': typeof AppSettingsRoute
+  '/sources': typeof AppSourcesRoute
   '/tasks': typeof AppTasksRoute
   '/leads/$id': typeof AppLeadsIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -101,8 +129,12 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/maverick': typeof MaverickRoute
   '/agents': typeof AppAgentsRoute
+  '/campaigns': typeof AppCampaignsRoute
   '/dashboard': typeof AppDashboardRoute
+  '/experiments': typeof AppExperimentsRoute
+  '/revenue': typeof AppRevenueRoute
   '/settings': typeof AppSettingsRoute
+  '/sources': typeof AppSourcesRoute
   '/tasks': typeof AppTasksRoute
   '/leads/$id': typeof AppLeadsIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -116,8 +148,12 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/maverick': typeof MaverickRoute
   '/_app/agents': typeof AppAgentsRoute
+  '/_app/campaigns': typeof AppCampaignsRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/experiments': typeof AppExperimentsRoute
+  '/_app/revenue': typeof AppRevenueRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/sources': typeof AppSourcesRoute
   '/_app/tasks': typeof AppTasksRoute
   '/_app/leads/$id': typeof AppLeadsIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -131,8 +167,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/maverick'
     | '/agents'
+    | '/campaigns'
     | '/dashboard'
+    | '/experiments'
+    | '/revenue'
     | '/settings'
+    | '/sources'
     | '/tasks'
     | '/leads/$id'
     | '/api/auth/$'
@@ -144,8 +184,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/maverick'
     | '/agents'
+    | '/campaigns'
     | '/dashboard'
+    | '/experiments'
+    | '/revenue'
     | '/settings'
+    | '/sources'
     | '/tasks'
     | '/leads/$id'
     | '/api/auth/$'
@@ -158,8 +202,12 @@ export interface FileRouteTypes {
     | '/login'
     | '/maverick'
     | '/_app/agents'
+    | '/_app/campaigns'
     | '/_app/dashboard'
+    | '/_app/experiments'
+    | '/_app/revenue'
     | '/_app/settings'
+    | '/_app/sources'
     | '/_app/tasks'
     | '/_app/leads/$id'
     | '/api/auth/$'
@@ -219,6 +267,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAgentsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/campaigns': {
+      id: '/_app/campaigns'
+      path: '/campaigns'
+      fullPath: '/campaigns'
+      preLoaderRoute: typeof AppCampaignsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
@@ -226,11 +281,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/experiments': {
+      id: '/_app/experiments'
+      path: '/experiments'
+      fullPath: '/experiments'
+      preLoaderRoute: typeof AppExperimentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/revenue': {
+      id: '/_app/revenue'
+      path: '/revenue'
+      fullPath: '/revenue'
+      preLoaderRoute: typeof AppRevenueRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sources': {
+      id: '/_app/sources'
+      path: '/sources'
+      fullPath: '/sources'
+      preLoaderRoute: typeof AppSourcesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/tasks': {
@@ -266,8 +342,12 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAgentsRoute: typeof AppAgentsRoute
+  AppCampaignsRoute: typeof AppCampaignsRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppExperimentsRoute: typeof AppExperimentsRoute
+  AppRevenueRoute: typeof AppRevenueRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppSourcesRoute: typeof AppSourcesRoute
   AppTasksRoute: typeof AppTasksRoute
   AppLeadsIdRoute: typeof AppLeadsIdRoute
   AppLeadsIndexRoute: typeof AppLeadsIndexRoute
@@ -275,8 +355,12 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAgentsRoute: AppAgentsRoute,
+  AppCampaignsRoute: AppCampaignsRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppExperimentsRoute: AppExperimentsRoute,
+  AppRevenueRoute: AppRevenueRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppSourcesRoute: AppSourcesRoute,
   AppTasksRoute: AppTasksRoute,
   AppLeadsIdRoute: AppLeadsIdRoute,
   AppLeadsIndexRoute: AppLeadsIndexRoute,

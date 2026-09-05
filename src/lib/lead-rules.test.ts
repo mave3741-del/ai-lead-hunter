@@ -100,11 +100,14 @@ describe("status transitions", () => {
     assert.equal(canTransition("DRAFT_READY", "APPROVED"), true);
     assert.equal(canTransition("APPROVED", "CONTACTED"), true);
     assert.equal(canTransition("CONTACTED", "REPLIED"), true);
+    assert.equal(canTransition("CONTACTED", "FOLLOW_UP_1"), true);
     assert.equal(canTransition("DEMO", "WON"), true);
+    assert.equal(canTransition("DEMO", "NEGOTIATION"), true);
   });
   it("blocks skip-to-won and dnc reversal", () => {
     assert.equal(canTransition("NEW", "WON"), false);
     assert.equal(canTransition("DRAFT_READY", "CONTACTED"), false);
+    assert.equal(canTransition("FOLLOW_UP_1", "CONTACTED"), false);
     assert.equal(canTransition("DO_NOT_CONTACT", "NEW"), false);
     assert.equal(canTransition("WON", "LOST"), false);
   });

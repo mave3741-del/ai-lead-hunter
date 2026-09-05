@@ -65,7 +65,7 @@ function Home() {
 
       <main className="mx-auto max-w-6xl px-5 pb-24 pt-10 md:pt-20">
         <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">
-          US dental clinics · $100 setup
+          Find better business opportunities with AI
         </p>
         <h1 className="mt-4 max-w-3xl font-display text-4xl leading-[1.1] tracking-[-0.03em] md:text-6xl">
           Find clinics that actually need an assistant.

@@ -26,6 +26,7 @@ function mapProfile(row: Record<string, unknown>): BusinessProfile {
     max_daily_ai_spend: num(row.max_daily_ai_spend, 5),
     agents_paused: Boolean(row.agents_paused),
     demo_mode: row.demo_mode == null ? true : Boolean(row.demo_mode),
+    daily_lead_target: num(row.daily_lead_target, 20),
   };
 }
 

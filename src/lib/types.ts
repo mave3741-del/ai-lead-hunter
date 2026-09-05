@@ -6,9 +6,12 @@ export const LEAD_STATUSES = [
   "DRAFT_READY",
   "APPROVED",
   "CONTACTED",
+  "FOLLOW_UP_1",
+  "FOLLOW_UP_2",
   "REPLIED",
   "INTERESTED",
   "DEMO",
+  "NEGOTIATION",
   "WON",
   "LOST",
   "DO_NOT_CONTACT",
@@ -31,10 +34,17 @@ export type Priority = (typeof PRIORITIES)[number];
 export const AGENT_TYPES = [
   "master",
   "scout",
+  "research",
   "auditor",
+  "opportunity",
   "scorer",
+  "offer",
   "outreach",
+  "followup",
   "manager",
+  "revenue",
+  "analytics",
+  "compliance",
 ] as const;
 export type AgentType = (typeof AGENT_TYPES)[number];
 
@@ -105,6 +115,7 @@ export type BusinessProfile = {
   max_daily_ai_spend: number;
   agents_paused: boolean;
   demo_mode: boolean;
+  daily_lead_target: number;
 };
 
 export type Workspace = {
@@ -127,12 +138,14 @@ export type Lead = {
   public_phone: string | null;
   public_email: string | null;
   source_url: string | null;
+  source: string;
   notes: string | null;
   tags: string[];
   status: LeadStatus;
   is_demo: boolean;
   response: string | null;
   contacted_at: string | null;
+  last_response_at: string | null;
   created_at: string;
   updated_at: string;
   score: number | null;
@@ -193,6 +206,10 @@ export type DashboardMetrics = {
   conversion_rate: number;
   customers: number;
   average_deal: number;
+  drafts_ready: number;
+  replied: number;
+  demos: number;
+  estimated_profit: number;
   ai_calls_today: number;
   ai_cost_today: number;
   tasks_completed: number;

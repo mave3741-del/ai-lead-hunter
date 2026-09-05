@@ -57,9 +57,13 @@ export function aiAvailable(): boolean {
 
 function fallbackChain(): string[] {
   const primary = configuredProvider();
-  const chain = [primary];
-  if (primary !== "xai" && process.env.XAI_API_KEY) chain.push("xai");
-  return chain;
+  const extra = (process.env.AI_FALLBACK_PROVIDER || "").toLowerCase().trim();
+  const order = [primary];
+  if (extra && extra !== primary) order.push(extra);
+  for (const p of ["openai", "openrouter", "anthropic", "google", "xai"]) {
+    if (!order.includes(p) && endpointFor(p).key) order.push(p);
+  }
+  return order.filter((p, i) => order.indexOf(p) === i && Boolean(endpointFor(p).key));
 }
 
 export async function chatCompletion(opts: {

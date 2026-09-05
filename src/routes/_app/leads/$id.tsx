@@ -12,6 +12,7 @@ import {
   runPipeline,
   saveLeadResponse,
   scoreLeadFn,
+  draftFollowup,
 } from "@/lib/server/fns";
 import { Badge, Button, Card, Textarea } from "@/components/ui";
 import { PriorityBadge, ScorePip, StatusBadge } from "@/components/status";
@@ -252,6 +253,13 @@ function LeadDetail() {
                 }
               >
                 Mark contacted
+              </Button>
+              <Button
+                variant="outline"
+                disabled={!!busy || (lead.status !== "CONTACTED" && lead.status !== "FOLLOW_UP_1")}
+                onClick={() => run("Follow-up drafted", () => draftFollowup({ data: id }))}
+              >
+                Draft follow-up
               </Button>
             </div>
             {!canSendOutreach(latest.approval_status) ? (

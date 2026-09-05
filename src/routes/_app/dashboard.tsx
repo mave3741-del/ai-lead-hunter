@@ -84,10 +84,17 @@ function Dashboard() {
         <Metric label="Contacted" value={String(m.contacted)} />
         <Metric label="Interested" value={String(m.interested)} />
         <Metric label="Won" value={String(m.won)} />
+        <Metric label="Drafts ready" value={String(m.drafts_ready)} />
+        <Metric label="Demos" value={String(m.demos)} />
         <Metric
           label="Revenue"
           value={formatMoney(m.revenue, data.profile.currency)}
           hint={`${m.conversion_rate}% of contacted · avg ${formatMoney(m.average_deal, data.profile.currency)}`}
+        />
+        <Metric
+          label="Est. profit"
+          value={formatMoney(m.estimated_profit, data.profile.currency)}
+          hint={`AI cost today ${formatMoney(m.ai_cost_today, data.profile.currency)}`}
         />
       </div>
 

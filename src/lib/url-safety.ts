@@ -56,7 +56,7 @@ export function parsePublicHttpUrl(raw: string): UrlCheck {
   if (parsed.username || parsed.password) {
     return { ok: false, error: "URLs with credentials are not allowed" };
   }
-  const host = parsed.hostname.toLowerCase().replace(/\.+$/, "");
+  const host = parsed.hostname.toLowerCase().replace(/\.+$/, "").replace(/^\[|\]$/g, "");
   if (!host) return { ok: false, error: "Host is required" };
   if (BLOCKED_HOSTS.has(host)) {
     return { ok: false, error: "This host is not allowed" };
